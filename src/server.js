@@ -76,7 +76,7 @@ app.get('/login', (req, res) => {
   res.redirect(authUrl);
 });
 
-// 2. Ruta de retorno (Callback) donde guardamos los tokens automáticamente
+// 2. Ruta de retorno (Callback)
 app.get('/callback', async (req, res) => {
   const code = req.query.code || null;
 
@@ -101,11 +101,8 @@ app.get('/callback', async (req, res) => {
       refreshTokenGlobal = data.refresh_token;
       tokenExpiresAt = Date.now() + (data.expires_in * 1000);
 
-      res.send(`
-        <h1>¡Inicio de sesión exitoso! 🎉</h1>
-        <p>Tu cuenta de Spotify ya está vinculada al servidor de Bratify.</p>
-        <p>Ya puedes cerrar esta pestaña. El servidor gestionará la renovación de tokens automáticamente.</p>
-      `);
+      // 🔄 Redirige automáticamente a la interfaz principal de Bratify
+      res.redirect('/');
     } else {
       res.status(400).json({ error: 'No se pudo obtener el token', details: data });
     }
