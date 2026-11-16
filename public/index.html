@@ -519,12 +519,14 @@
       if (!spotifyToken) return;
       try {
         // El servidor decide el método HTTP real hacia Spotify; aquí siempre POST
-        await fetch(`/api/player/${action}`, {
+        dlog(`→ comando a Spotify: ${action}`);
+        const rc = await fetch(`/api/player/${action}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ spotifyToken, ...extraBody }),
           signal: limite(10000)
         });
+        if (!rc.ok) dlog(`⚠ comando ${action} rechazado (${rc.status})`);
       } catch (err) {
         console.error("Error comando Spotify:", err);
       }
@@ -879,6 +881,7 @@
 
       try {
         const t0 = Date.now(); // hora real: performance.now() se queda parado cuando el móvil duerme
+        const restabaAntes = duracionCancionMs ? duracionCancionMs - progresoActualMs() : null; // para el registro
         const volFiableAlPedir = volumenFiable();
         const res = await fetch('/api/estado', { headers: { 'Authorization': `Bearer ${token}` }, signal: limite(8000) });
         if (res.status === 401) { comprobarSesion(); return; } // el servidor intenta renovar; si no puede, aparece el login
@@ -887,6 +890,7 @@
         ultimoSondeoTs = Date.now();
         if (!data || !data.item) { isPlaying = false; return; }
 
+        if (data.is_playing !== isPlaying) dlog(`Spotify: ${data.is_playing ? 'reproduciendo' : 'en pausa'} (progreso ${Math.round((data.progress_ms || 0) / 1000)}s)`);
         isPlaying = data.is_playing;
 
         // Volumen real del usuario. Solo se lee si la consulta empezó y terminó SIN locución y pasados 8 s desde la
@@ -896,6 +900,7 @@
         }
 
         tipoDispositivo = data.device?.type ?? null;
+        if (data.device?.id !== dispositivoId) dlog(`dispositivo: ${data.device?.name} (${data.device?.type}) vol=${data.device?.volume_percent}`);
         if (data.device?.id !== dispositivoId) { dispositivoId = data.device?.id ?? null; soportaVolumen = ES_APP_ANDROID || !['Smartphone', 'Tablet'].includes(tipoDispositivo); duckNativoFallido = false; } // al cambiar de dispositivo se vuelve a probar (los móviles sin la app nativa no permiten volumen: modo pausa)
 
         // Re-sincronizar el reloj local
@@ -922,7 +927,7 @@
           ultimaCancionId = data.item.id;
           fallosPrecarga = 0;
           console.info('[DJ] canción nueva:', titulo);
-          dlog(`canción nueva: ${titulo} (${Math.round((data.item.duration_ms || 0) / 1000)}s)`);
+          dlog(`canción nueva: ${titulo} (${Math.round((data.item.duration_ms || 0) / 1000)}s) · progreso en Spotify ${Math.round((data.progress_ms || 0) / 1000)}s · a la anterior le quedaban ${restabaAntes === null ? '?' : Math.round(restabaAntes / 1000) + 's'}`);
           if (!transicionEnCurso) {
             locucionPreparada = false;
             liberarAudio();
