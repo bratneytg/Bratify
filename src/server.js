@@ -1,82 +1,37 @@
 import express from 'express';
 import 'dotenv/config';
 import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { generarGuionLocutor } from './services/gemini.js';
 import { generarAudioLocucion } from './services/elevenlabs.js';
 import { obtenerCancionActualConHistorial } from './services/spotify.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// Variables en memoria para mantener la sesión activa del usuario
-let accessTokenGlobal = null;
-let refreshTokenGlobal = null;
-let tokenExpiresAt = 0;
+// 1. Servir el frontend y los archivos de audio generados
+app.use(express.static(path.join(__dirname, '../public')));
+app.use('/audios', express.static(path.join(__dirname, '..')));
 
-/**
- * Renueva o devuelve un Access Token válido de Spotify automáticamente.
- */
-async function asegurarTokenSpotify() {
-  const ahora = Date.now();
-  
-  // Si el token actual sigue vigente (con 1 minuto de margen), lo reutilizamos
-  if (accessTokenGlobal && ahora < tokenExpiresAt - 60000) {
-    return accessTokenGlobal;
-  }
-
-  // Si no hay refresh token, significa que el usuario nunca ha iniciado sesión
-  if (!refreshTokenGlobal) {
-    throw new Error("⚠️ No hay ninguna sesión de Spotify iniciada. Entra a http://localhost:3000/login para autenticarte.");
-  }
-
-  console.log("🔄 El token de Spotify ha expirado o va a caducar. Renovando automáticamente...");
-  
-  const response = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': 'Basic ' + Buffer.from(process.env.SPOTIFY_CLIENT_ID + ':' + process.env.SPOTIFY_CLIENT_SECRET).toString('base64')
-    },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refreshTokenGlobal
-    })
-  });
-
-  const data = await response.json();
-
-  if (data.access_token) {
-    accessTokenGlobal = data.access_token;
-    tokenExpiresAt = Date.now() + (data.expires_in * 1000);
-    if (data.refresh_token) {
-      refreshTokenGlobal = data.refresh_token; // Spotify a veces rota el refresh token
-    }
-    console.log("✅ Token de Spotify renovado con éxito en segundo plano.");
-    return accessTokenGlobal;
-  } else {
-    throw new Error("❌ Error al renovar el token con Spotify: " + JSON.stringify(data));
-  }
-}
-
-app.get('/', (req, res) => {
-  res.send('🎙️ ¡El servidor de Bratify está online! <br><a href="/login" target="_blank">1. Haz clic aquí para iniciar sesión con Spotify</a>');
-});
-
-// 1. Ruta de inicio de sesión
+// 2. Ruta de inicio de sesión con Spotify (con permisos de reproducción)
 app.get('/login', (req, res) => {
-  const scope = 'user-read-playback-state user-read-currently-playing';
+  const scope = 'user-read-playback-state user-read-currently-playing user-modify-playback-state';
   const authUrl = 'https://accounts.spotify.com/authorize?' + new URLSearchParams({
     response_type: 'code',
     client_id: process.env.SPOTIFY_CLIENT_ID,
     scope: scope,
-    redirect_uri: process.env.SPOTIFY_REDIRECT_URI,
+    redirect_uri: process.env.SPOTIFY_REDIRECT_URI || 'http://127.0.0.1:3000/callback',
   });
   res.redirect(authUrl);
 });
 
-// 2. Ruta de retorno (Callback)
+// 3. Callback de Spotify para entregar el token de acceso
 app.get('/callback', async (req, res) => {
   const code = req.query.code || null;
 
@@ -89,7 +44,7 @@ app.get('/callback', async (req, res) => {
       },
       body: new URLSearchParams({
         code: code,
-        redirect_uri: process.env.SPOTIFY_REDIRECT_URI,
+        redirect_uri: process.env.SPOTIFY_REDIRECT_URI || 'http://127.0.0.1:3000/callback',
         grant_type: 'authorization_code'
       })
     });
@@ -97,12 +52,19 @@ app.get('/callback', async (req, res) => {
     const data = await tokenResponse.json();
 
     if (data.access_token) {
-      accessTokenGlobal = data.access_token;
-      refreshTokenGlobal = data.refresh_token;
-      tokenExpiresAt = Date.now() + (data.expires_in * 1000);
-
-      // 🔄 Redirige automáticamente a la interfaz principal de Bratify
-      res.redirect('/');
+      // Muestra el token de forma clara para que la interfaz o tú podáis usarlo sin enredos de redirección infinita
+      res.send(`
+        <html>
+          <head><title>Bratify - Autenticación</title></head>
+          <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+            <h1>¡Autenticación exitosa con Spotify! 🎉</h1>
+            <p>Copia este Token de acceso:</p>
+            <textarea rows="4" cols="50" style="width:100%; max-width:500px; padding: 10px; font-family: monospace;">${data.access_token}</textarea>
+            <br><br>
+            <a href="/" style="font-size: 18px; color: #1db954; text-decoration: none; font-weight: bold;">Volver al reproductor de Bratify</a>
+          </body>
+        </html>
+      `);
     } else {
       res.status(400).json({ error: 'No se pudo obtener el token', details: data });
     }
@@ -111,45 +73,75 @@ app.get('/callback', async (req, res) => {
   }
 });
 
-// 3. Ruta principal para crear el bloque (ya no requiere enviar el token desde el cliente)
+// 4. Endpoint de estado actual del reproductor
+app.get('/api/estado', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Falta token' });
+
+  try {
+    const response = await fetch('https://api.spotify.com/v1/me/player', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (response.status === 204) return res.json({ is_playing: false });
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 5. Endpoint para controlar play, pause, next, previous y shuffle
+app.post('/api/player/:action', async (req, res) => {
+  const { action } = req.params;
+  const { spotifyToken, state } = req.body;
+
+  let url = `https://api.spotify.com/v1/me/player/${action}`;
+  let method = 'POST';
+
+  if (action === 'play' || action === 'pause') {
+    method = 'PUT';
+  } else if (action === 'shuffle') {
+    method = 'PUT';
+    url = `https://api.spotify.com/v1/me/player/shuffle?state=${state}`;
+  }
+
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: { 'Authorization': `Bearer ${spotifyToken}` }
+    });
+    res.json({ success: response.ok, status: response.status });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 6. Endpoint para generar la locución del DJ IA con historial
 app.post('/api/crear-bloque', async (req, res) => {
   try {
-    // Obtenemos un token válido (renovándolo automáticamente si hace falta)
-    const spotifyToken = await asegurarTokenSpotify();
-
-    console.log("🎵 Consultando la canción actual en Spotify...");
-    const { cancionAnterior, cancionSiguiente } = await obtenerCancionActualConHistorial(spotifyToken);
-    console.log(`🎵 Canción detectada: ${cancionAnterior}`);
+    const { spotifyToken, ultimaCancionConocida } = req.body;
+    
+    const { cancionAnterior, cancionActual, cancionSiguiente } = await obtenerCancionActualConHistorial(
+      spotifyToken, 
+      ultimaCancionConocida || "una gran canción"
+    );
 
     const guion = await generarGuionLocutor(cancionAnterior, cancionSiguiente);
-    console.log(`📝 Guion: "${guion}"`);
-
     const arrayBuffer = await generarAudioLocucion(guion);
-    const buffer = Buffer.from(arrayBuffer);
-
-    fs.writeFileSync('output-locucion.mp3', buffer);
+    
+    fs.writeFileSync(path.join(__dirname, '../output-locucion.mp3'), Buffer.from(arrayBuffer));
 
     res.json({
       success: true,
-      message: '¡Bloque de radio generado con éxito!',
       cancionDetectada: cancionAnterior,
-      guion,
-      audioGuardado: 'output-locucion.mp3'
+      guion
     });
-
   } catch (error) {
     console.error("❌ Error en el servidor:", error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor Bratify corriendo en http://localhost:${PORT}`);
-});
-
-// Ruta para que el cliente se aclare si hay sesión activa
-app.get('/api/estado-sesion', (req, res) => {
-  res.json({
-    conectado: !!refreshTokenGlobal
-  });
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Servidor Bratify corriendo en http://127.0.0.1:${PORT}`);
 });
