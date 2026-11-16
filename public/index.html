@@ -263,7 +263,8 @@
 
     // ============ CONFIGURACIÓN AJUSTABLE ============
     const PRECARGA_MS = 60000;     // cuánto antes del final se genera la locución (1 minuto)
-    const VOLUMEN_DUCK = 20;       // % de volumen de la música mientras habla el DJ (en PC/altavoces; en el móvil lo decide Android)
+    const VOLUMEN_DUCK = 12;       // % de volumen de la música mientras habla el DJ (en PC/altavoces; en el móvil lo decide Android)
+    const GANANCIA_VOZ = 2.2;      // amplificación de la voz del DJ (1 = original). Sube/baja si aún se oye floja o distorsiona
     const ANTICIPACION_MS = 1200;  // la voz termina este tiempo ANTES del final de la canción; en ese hueco la música "sube" sola y entra la siguiente limpia
     const DUCK_FADE_MS = 2500;     // duración de la bajada de volumen (más alto = más suave)
     const SUBIDA_FADE_MS = 2500;   // duración de la subida de volumen al terminar la voz
@@ -550,7 +551,16 @@
 
         const fuente = audioCtx.createBufferSource();
         fuente.buffer = bufferDj;
-        fuente.connect(audioCtx.destination);
+        // La voz pasa por una ganancia y un limitador: se amplifica sin saturar ni "romper" el audio
+        const ganancia = audioCtx.createGain();
+        ganancia.gain.value = GANANCIA_VOZ;
+        const limitador = audioCtx.createDynamicsCompressor();
+        limitador.threshold.value = -6;  // empieza a limitar cerca del tope
+        limitador.knee.value = 3;
+        limitador.ratio.value = 20;
+        limitador.attack.value = 0.003;
+        limitador.release.value = 0.1;
+        fuente.connect(ganancia).connect(limitador).connect(audioCtx.destination);
         fuente.onended = () => terminarVoz(); // dispara justo al acabar la voz, sin estimaciones
         fuente.start();
         vozReprodujo = true;
