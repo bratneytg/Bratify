@@ -1,6 +1,11 @@
 package com.bratify.radio;
 
+import android.Manifest;
 import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
@@ -51,6 +56,24 @@ public class AudioDuckingPlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("granted", resultado == AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
         call.resolve(ret);
+    }
+
+    /** Arranca el servicio en primer plano: el DJ sigue funcionando con la pantalla bloqueada */
+    @PluginMethod
+    public void iniciarSegundoPlano(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(getContext(), Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(getActivity(), new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
+        }
+        ContextCompat.startForegroundService(getContext(), new Intent(getContext(), DjForegroundService.class));
+        MainActivity.segundoPlano = true;
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void detenerSegundoPlano(PluginCall call) {
+        MainActivity.segundoPlano = false;
+        getContext().stopService(new Intent(getContext(), DjForegroundService.class));
+        call.resolve();
     }
 
     @PluginMethod

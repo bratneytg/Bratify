@@ -106,6 +106,11 @@
     .token-box a { color: var(--text-secondary); text-decoration: none; font-weight: 700; }
     .token-box a:hover { color: #fff; text-decoration: underline; }
     @media (max-width: 768px) { .progress-fill::after { opacity: 1; } .ctrl-btn { width: 44px; height: 44px; } .play-pause-btn { width: 48px; height: 48px; } }
+    :root { --safe-top: max(env(safe-area-inset-top, 0px), 28px); }
+    @media (max-width: 768px) {
+      body { padding-top: var(--safe-top); } /* deja libre la barra de estado (hora, notificaciones) */
+      .content { padding: 16px; justify-content: center; }
+    }
   </style>
 </head>
 <body>
@@ -229,6 +234,8 @@
     // sin tocar el volumen del teléfono. Ver AudioDuckingPlugin.java.
     const ES_APP_ANDROID = window.Capacitor?.getPlatform?.() === 'android';
     const AudioDucking = window.Capacitor?.Plugins?.AudioDucking ?? window.Capacitor?.registerPlugin?.('AudioDucking') ?? null;
+    let ultimoSondeoTs = 0;          // última vez que Spotify respondió bien
+    let ubicacion = null;            // {lat, lon} del dispositivo (aprox. 1 km)
     let tipoDispositivo = null;      // tipo de dispositivo donde suena Spotify (Smartphone, Computer, Speaker...)
     let duckNativoFallido = false;
     const usaDuckNativo = () => ES_APP_ANDROID && !!AudioDucking && !duckNativoFallido && ['Smartphone', 'Tablet'].includes(tipoDispositivo);
@@ -268,6 +275,8 @@
 
     btnToggleDj.addEventListener('click', () => {
       djActivo = !djActivo;
+      // App Android: servicio en primer plano para que el DJ siga con la pantalla bloqueada
+      if (ES_APP_ANDROID && AudioDucking) (djActivo ? AudioDucking.iniciarSegundoPlano() : AudioDucking.detenerSegundoPlano()).catch(() => {});
       btnToggleDj.classList.toggle('dj-on', djActivo);
       btnToggleDj.innerHTML = '<span class="dj-dot"></span>' + (djActivo ? 'DJ IA activo' : 'DJ IA');
       if (djActivo && !transicionEnCurso) { locucionPreparada = false; desbloquearAudio(); }
@@ -362,7 +371,7 @@
         const res = await fetch('/api/crear-bloque', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ spotifyToken, ultimaCancionConocida: ultimaCancionNombre, ambiente })
+          body: JSON.stringify({ spotifyToken, ultimaCancionConocida: ultimaCancionNombre, ambiente, ubicacion })
         });
         const data = await res.json();
         if (!data.success) throw new Error(data.error || 'El servidor no pudo crear la locución');
@@ -539,7 +548,7 @@
     async function buscarPosicion(posMs) {
       // Reloj local al instante (sin esperar a Spotify)
       progresoBaseMs = posMs;
-      inicioCancionTs = performance.now() - posMs;
+      inicioCancionTs = Date.now() - posMs;
       ignorarProgresoHasta = performance.now() + 2000;
 
       // ¿Queda tiempo para que el DJ hable bien en esta canción? Si no (saltó muy cerca del final), se omite en esta.
@@ -565,7 +574,7 @@
     // (la que da el inicio más temprano), como hace NTP. Se reinicia al pausar, cambiar de canción o saltar a otro punto.
     function progresoActualMs() {
       if (!isPlaying || inicioCancionTs === null) return Math.min(progresoBaseMs, duracionCancionMs);
-      return Math.min(performance.now() - inicioCancionTs, duracionCancionMs);
+      return Math.min(Date.now() - inicioCancionTs, duracionCancionMs);
     }
 
     function tick() {
@@ -583,6 +592,8 @@
         btnPlayPause.innerHTML = isPlaying ? '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>' : '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
       }
 
+      // Datos de Spotify viejos (p. ej. al volver del segundo plano): no se actúa con un reloj dudoso
+      if (Date.now() - ultimoSondeoTs > 6000) return;
       if (!djActivo || !isPlaying || transicionEnCurso || djOmitidoId === ultimaCancionId) return;
 
       // a) Precargar. Ventana adaptativa: mínimo PRECARGA_MS (60 s), pero se adelanta si la voz es larga
@@ -608,12 +619,13 @@
       if (!token) return;
 
       try {
-        const t0 = performance.now();
+        const t0 = Date.now(); // hora real: performance.now() se queda parado cuando el móvil duerme
         const volFiableAlPedir = volumenFiable();
         const res = await fetch('/api/estado', { headers: { 'Authorization': `Bearer ${token}` } });
         if (res.status === 401) { comprobarSesion(); return; } // el servidor intenta renovar; si no puede, aparece el login
         if (!res.ok) return;
         const data = await res.json();
+        ultimoSondeoTs = Date.now();
         if (!data || !data.item) { isPlaying = false; return; }
 
         isPlaying = data.is_playing;
@@ -628,7 +640,7 @@
         if (data.device?.id !== dispositivoId) { dispositivoId = data.device?.id ?? null; soportaVolumen = true; duckNativoFallido = false; } // al cambiar de dispositivo se vuelve a probar
 
         // Re-sincronizar el reloj local
-        const muestraTs = (t0 + performance.now()) / 2 - (data.progress_ms || 0); // mitad del viaje de ida y vuelta
+        const muestraTs = (t0 + Date.now()) / 2 - (data.progress_ms || 0); // mitad del viaje de ida y vuelta
         const cambioDeCancion = ultimaCancionId !== data.item.id;
         if (performance.now() >= ignorarProgresoHasta || cambioDeCancion) {
           progresoBaseMs = data.progress_ms || 0;
@@ -704,11 +716,31 @@
         sesionActiva = !!data.conectado;
         document.getElementById('overlayLogin').style.display = sesionActiva ? 'none' : 'flex';
         document.getElementById('estadoSesion').textContent = sesionActiva ? 'Conectado ✓' : 'Sin conexión';
-        if (sesionActiva) actualizarEstado();
+        if (sesionActiva) { actualizarEstado(); pedirUbicacion(); }
       } catch (e) {
         setTimeout(comprobarSesion, 3000);
       }
     }
+    // Ubicación del dispositivo para el clima de SU ciudad. Se redondea a ~1 km y solo se envía al generar locuciones.
+    // Si el usuario no da permiso, el servidor usa la ciudad por defecto (CIUDAD del .env).
+    try { ubicacion = JSON.parse(localStorage.getItem('bratify_ubicacion')); } catch (e) { ubicacion = null; }
+    function pedirUbicacion() {
+      if (!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          ubicacion = { lat: +pos.coords.latitude.toFixed(2), lon: +pos.coords.longitude.toFixed(2) };
+          localStorage.setItem('bratify_ubicacion', JSON.stringify(ubicacion));
+        },
+        (err) => console.warn('[DJ] Sin ubicación, se usa la ciudad por defecto:', err.message),
+        { enableHighAccuracy: false, timeout: 15000, maximumAge: 3600000 }
+      );
+    }
+
+    // Al volver a la app (p. ej. tras bloquear la pantalla): reanudar el audio y refrescar Spotify al instante
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') { audioCtx?.resume?.().catch(() => {}); actualizarEstado(); }
+    });
+
     comprobarSesion();
 
     document.getElementById('btnMenu').addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('abierto'));

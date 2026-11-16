@@ -20,7 +20,6 @@ const REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI || `http://127.0.0.1:${POR
 const SCOPE = 'user-read-playback-state user-read-currently-playing user-modify-playback-state';
 const EN_RENDER = !!process.env.RENDER || process.env.NODE_ENV === 'production';
 const COOKIE_SESION = 'bratify_rt';   // refresh token (httpOnly: el JavaScript del navegador no puede leerlo)
-const COOKIE_STATE = 'bratify_state'; // anti-CSRF durante el login
 const ACCIONES_PERMITIDAS = ['play', 'pause', 'next', 'previous', 'shuffle', 'volume', 'seek'];
 const UN_ANO = 365 * 24 * 3600 * 1000;
 
@@ -97,9 +96,25 @@ async function requiereSesion(req, res, next) {
 // ---------------------------------------------------------------------------
 // LOGIN / LOGOUT
 // ---------------------------------------------------------------------------
+// El parámetro `state` (anti-CSRF) va FIRMADO en vez de guardarse en una cookie. Así el login funciona aunque
+// empiece en la app (WebView) y termine en otro navegador (Chrome): antes la cookie no viajaba entre ambos
+// y salía "Login no válido o caducado" en el primer intento.
+const FIRMA_KEY = process.env.STATE_SECRET || process.env.SPOTIFY_CLIENT_SECRET || 'bratify';
+const firmar = (txt) => crypto.createHmac('sha256', FIRMA_KEY).update(txt).digest('hex').slice(0, 32);
+function crearState() {
+  const base = `${crypto.randomBytes(8).toString('hex')}.${Date.now()}`;
+  return `${base}.${firmar(base)}`;
+}
+function stateValido(state) {
+  const [nonce, ts, firma] = String(state || '').split('.');
+  if (!nonce || !ts || !firma) return false;
+  const esperada = firmar(`${nonce}.${ts}`);
+  const igual = firma.length === esperada.length && crypto.timingSafeEqual(Buffer.from(firma), Buffer.from(esperada));
+  return igual && Date.now() - Number(ts) < 10 * 60 * 1000; // válido 10 minutos
+}
+
 app.get('/login', (req, res) => {
-  const state = crypto.randomBytes(16).toString('hex');
-  res.cookie(COOKIE_STATE, state, opcionesCookie(10 * 60 * 1000));
+  const state = crearState();
   res.redirect('https://accounts.spotify.com/authorize?' + new URLSearchParams({
     response_type: 'code', client_id: process.env.SPOTIFY_CLIENT_ID, scope: SCOPE, redirect_uri: REDIRECT_URI, state,
   }));
@@ -111,13 +126,12 @@ app.get('/callback', async (req, res) => {
     `<body style="font-family:sans-serif;text-align:center;padding-top:50px"><h2>${msg}</h2><a href="/login">Intentar de nuevo</a></body>`);
 
   if (error) return paginaError('Spotify canceló el inicio de sesión.');
-  if (!code || !state || state !== leerCookie(req, COOKIE_STATE)) return paginaError('Login no válido o caducado.');
+  if (!code || !stateValido(state)) return paginaError('Login no válido o caducado.');
 
   try {
     const data = await pedirTokensSpotify({ grant_type: 'authorization_code', code, redirect_uri: REDIRECT_URI });
     cacheTokens.set(data.refresh_token, { accessToken: data.access_token, expira: Date.now() + data.expires_in * 1000 });
     res.cookie(COOKIE_SESION, data.refresh_token, opcionesCookie(UN_ANO));
-    res.clearCookie(COOKIE_STATE, opcionesCookie(0));
     res.redirect('/'); // ya no hay que copiar ningún token
   } catch (e) {
     console.error('❌ Error en /callback:', e.message);
@@ -196,7 +210,7 @@ app.post('/api/crear-bloque', requiereSesion, async (req, res) => {
     );
 
     // Variedad: canción, clima, dato curioso, momento del día o mezcla
-    const clima = await obtenerClima();
+    const clima = await obtenerClima(req.body.ubicacion); // {lat, lon} del dispositivo, si la compartió
     const tipo = gemini.elegirTipoSegmento?.(!!clima) ?? 'cancion';
     const guion = await gemini.generarGuionLocutor(cancionAnterior, cancionSiguiente, { tipo, clima, ambiente });
     console.log(`🎙️ Locución [${tipo}]${ambiente ? ` + ambiente "${ambiente}"` : ''}: ${guion}`);
