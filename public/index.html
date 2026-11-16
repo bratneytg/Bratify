@@ -5,6 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Velvet Dial</title>
   <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Velvet Dial" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <style>
     :root {
       --bg-black: #000000;
@@ -18,6 +25,8 @@
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    .aviso-ios { position: fixed; left: 10px; right: 10px; top: calc(env(safe-area-inset-top, 0px) + 8px); z-index: 1000; background: #1f1f1f; border: 1px solid var(--brat-neon); border-radius: 12px; padding: 10px 38px 10px 12px; font-size: 13px; line-height: 1.35; color: var(--text-primary); box-shadow: 0 6px 24px rgba(0,0,0,.6); }
+    .aviso-ios button { position: absolute; right: 6px; top: 4px; background: none; border: 0; color: var(--text-secondary); font-size: 20px; padding: 4px 8px; cursor: pointer; }
     body { background-color: var(--bg-black); color: var(--text-primary); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
     .main-container { display: flex; flex: 1; gap: 8px; padding: 8px; overflow: hidden; }
@@ -125,6 +134,7 @@
   </style>
 </head>
 <body>
+  <div id="avisoIos" class="aviso-ios" style="display:none"><span id="avisoIosTexto"></span><button id="avisoIosCerrar" aria-label="✕">✕</button></div>
 
   <!-- Pantalla de login: aparece solo si no hay sesión de Spotify. La sesión se renueva sola en el servidor. -->
   <div id="overlayLogin" class="overlay-login">
@@ -213,6 +223,8 @@
         bListo: '✨ LISTO (DJ: {s}S)', bErrGenerar: '⚠️ ERROR AL GENERAR LA LOCUCIÓN', bPulsaDj: '⚠️ PULSA "DJ IA" PARA ACTIVAR EL AUDIO',
         bAlAireRet: '🎚️ DJ AL AIRE (LLEGÓ JUSTO: SE RETIENE LA SIGUIENTE)', bAlAire: '🎚️ DJ AL AIRE (MÚSICA BAJA)...',
         bErrLocucion: '⚠️ ERROR EN LA LOCUCIÓN', bSiguiente: '● DJ IA (SIGUIENTE CANCIÓN)', bSinTiempo: '● DJ: SIN TIEMPO PARA HABLAR EN ESTA CANCIÓN',
+        avisoIosInstalar: 'Para instalarla en tu iPhone: pulsa Compartir y luego "Añadir a pantalla de inicio". Ojo: en iPhone el DJ solo habla con la app abierta y la pantalla encendida.',
+        avisoIosAbierta: 'En iPhone el DJ solo habla con la app abierta y la pantalla encendida. No bloquees el teléfono mientras escuchas.',
       },
       en: {
         titulo: 'Velvet Dial', loginMsg: 'Connect your Spotify account to get started.', btnLogin: 'Connect with Spotify',
@@ -227,6 +239,8 @@
         bListo: '✨ READY (DJ: {s}S)', bErrGenerar: '⚠️ COULD NOT GENERATE THE LINK', bPulsaDj: '⚠️ TAP "AI DJ" TO ENABLE AUDIO',
         bAlAireRet: '🎚️ DJ ON AIR (TIGHT TIMING: NEXT SONG HELD)', bAlAire: '🎚️ DJ ON AIR (MUSIC DUCKED)...',
         bErrLocucion: '⚠️ ERROR PLAYING THE LINK', bSiguiente: '● AI DJ (NEXT SONG)', bSinTiempo: '● DJ: NO TIME TO SPEAK ON THIS SONG',
+        avisoIosInstalar: 'To install it on your iPhone: tap Share, then "Add to Home Screen". Note: on iPhone the DJ only speaks while the app is open and the screen is on.',
+        avisoIosAbierta: 'On iPhone the DJ only speaks while the app is open and the screen is on. Do not lock the phone while listening.',
       },
     };
     let idioma = localStorage.getItem('vd_idioma') || ((navigator.language || 'es').toLowerCase().startsWith('es') ? 'es' : 'en');
@@ -254,7 +268,21 @@
         document.getElementById('mainArtist').textContent = t('abreSpotify');
       }
       if (!guionMostrado) document.getElementById('djScript').textContent = t('djDefault');
+      pintarAvisoIos();
     }
+
+    // Aviso solo en iPhone/iPad: cómo instalarla y que debe quedarse abierta. Se puede cerrar y no vuelve a salir.
+    function pintarAvisoIos() {
+      const caja = document.getElementById('avisoIos');
+      const clave = ES_STANDALONE ? 'avisoIosAbierta' : 'avisoIosInstalar';
+      if (!ES_IOS || localStorage.getItem('vd_aviso_' + clave)) { caja.style.display = 'none'; return; }
+      document.getElementById('avisoIosTexto').textContent = t(clave);
+      caja.style.display = 'block';
+    }
+    document.getElementById('avisoIosCerrar').addEventListener('click', () => {
+      localStorage.setItem('vd_aviso_' + (ES_STANDALONE ? 'avisoIosAbierta' : 'avisoIosInstalar'), '1');
+      document.getElementById('avisoIos').style.display = 'none';
+    });
     document.querySelectorAll('[data-lang]').forEach(b => b.addEventListener('click', () => {
       idioma = b.dataset.lang;
       localStorage.setItem('vd_idioma', idioma);
@@ -272,7 +300,64 @@
     const VOZ_RETRASO_MS = 1200;   // la voz entra con este retraso desde que empieza a bajar la música
     const POLL_MS = 2000;          // cada cuánto se consulta a Spotify (entre consultas se interpola en local)
     const TICK_MS = 250;           // resolución del reloj local que decide cuándo actuar
-    const esperar = (ms) => new Promise(r => setTimeout(r, ms));
+
+    // ============ TEMPORIZADORES A PRUEBA DE SEGUNDO PLANO ============
+    // Con la pantalla apagada, Chrome/WebView frena los setTimeout de la página (a 1 por segundo y, pasados 5 min, a
+    // 1 por MINUTO), pero NO los de un Web Worker. Antes la consulta a Spotify y las esperas de la locución usaban
+    // setTimeout, así que con la pantalla apagada los datos de Spotify se quedaban viejos y el DJ dejaba de hablar.
+    // Ahora TODOS los temporizadores (y el reloj de 250 ms) pasan por un único worker.
+    const relojW = (() => {
+      try {
+        return new Worker(URL.createObjectURL(new Blob([`
+          const t = new Map();
+          onmessage = (e) => {
+            const m = e.data;
+            if (m.op === 'set') t.set(m.id, setTimeout(() => { t.delete(m.id); postMessage(m.id); }, m.ms));
+            else if (m.op === 'clear') { clearTimeout(t.get(m.id)); t.delete(m.id); }
+            else if (m.op === 'tick') setInterval(() => postMessage(0), m.ms);
+          };`], { type: 'text/javascript' })));
+      } catch (e) { return null; } // sin worker (CSP, navegador antiguo): se usan los temporizadores normales
+    })();
+    const pendientesW = new Map();
+    let idTimerW = 0;
+    if (relojW) relojW.onmessage = (e) => {
+      if (e.data === 0) { tick(); return; } // id 0 = latido del reloj local
+      const fn = pendientesW.get(e.data);
+      pendientesW.delete(e.data);
+      if (fn) { try { fn(); } catch (err) { console.error(err); } }
+    };
+    const tOut = (fn, ms = 0) => {
+      if (!relojW) return setTimeout(fn, ms);
+      const id = ++idTimerW;
+      pendientesW.set(id, fn);
+      relojW.postMessage({ op: 'set', id, ms });
+      return id;
+    };
+    const tClear = (id) => {
+      if (!relojW) { clearTimeout(id); return; }
+      if (pendientesW.delete(id)) relojW.postMessage({ op: 'clear', id });
+    };
+    const esperar = (ms) => new Promise(r => tOut(r, ms));
+
+    // Un Web Lock abierto evita que Chrome "congele" la página en segundo plano (se mantiene mientras la página viva)
+    try { navigator.locks?.request('velvet-dial-vivo', () => new Promise(() => {})); } catch (e) { /* opcional */ }
+
+    // ============ PLATAFORMA ============
+    const UA = navigator.userAgent || '';
+    const ES_IOS = /iPhone|iPad|iPod/i.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS se presenta como Mac
+    const ES_STANDALONE = window.navigator.standalone === true || window.matchMedia?.('(display-mode: standalone)').matches;
+    const ES_MOVIL_WEB = /iPhone|iPad|iPod|Android/i.test(UA) || ES_IOS; // móvil usando la web (en PC no hace falta)
+
+    // Mantener la pantalla encendida (solo móvil en la web: en iPhone una página no puede seguir viva con la pantalla bloqueada)
+    let pantallaLock = null;
+    async function mantenerPantallaEncendida(activar) {
+      try {
+        if (!activar) { await pantallaLock?.release(); pantallaLock = null; return; }
+        if (!('wakeLock' in navigator) || pantallaLock) return;
+        pantallaLock = await navigator.wakeLock.request('screen');
+        pantallaLock.addEventListener('release', () => { pantallaLock = null; });
+      } catch (e) { pantallaLock = null; /* sin permiso o no compatible: se ignora */ }
+    }
 
     // Compensa el retraso con el que Spotify informa del progreso: adelanta el inicio de la voz.
     // Ya no es editable en pantalla; si algún día hace falta, cámbialo aquí (en ms).
@@ -350,7 +435,13 @@
     // Los navegadores bloquean el audio automático hasta que el usuario hace clic. Con Web Audio basta con
     // crear/reanudar el contexto en un clic (botón DJ); después la voz suena cuando toque.
     function asegurarAudioCtx() {
-      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      // iPhone: por defecto el audio web es "ambiente" y lo silencia el interruptor de silencio; 'playback' lo evita (iOS 17+)
+      try { if (ES_IOS && 'audioSession' in navigator) navigator.audioSession.type = 'playback'; } catch (e) { /* opcional */ }
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        // Si el sistema suspende el audio (llamada, segundo plano...) con el DJ activo, se reanuda solo
+        audioCtx.onstatechange = () => { if (djActivo && audioCtx.state !== 'running') audioCtx.resume().catch(() => {}); };
+      }
       if (audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
     }
     const desbloquearAudio = asegurarAudioCtx;
@@ -359,6 +450,13 @@
       djActivo = !djActivo;
       // App Android: servicio en primer plano para que el DJ siga con la pantalla bloqueada
       if (ES_APP_ANDROID && AudioDucking) (djActivo ? AudioDucking.iniciarSegundoPlano() : AudioDucking.detenerSegundoPlano()).catch(() => {});
+      // App Android: pide una sola vez que el sistema no "duerma" la app para ahorrar batería (si no, algunos móviles la congelan)
+      if (djActivo && ES_APP_ANDROID && AudioDucking && !localStorage.getItem('vd_bateria')) {
+        localStorage.setItem('vd_bateria', '1');
+        tOut(() => AudioDucking.pedirSinOptimizacionBateria().catch(() => {}), 6000); // tras el aviso de notificaciones
+      }
+      // Móvil en la web (iPhone sobre todo): una página no puede seguir viva con la pantalla bloqueada, así que se mantiene encendida
+      if (ES_MOVIL_WEB && !ES_APP_ANDROID) mantenerPantallaEncendida(djActivo);
       btnToggleDj.classList.toggle('dj-on', djActivo);
       btnToggleDj.innerHTML = '<span class="dj-dot"></span>' + t(djActivo ? 'djBtnOn' : 'djBtnOff');
       if (djActivo && !transicionEnCurso) { locucionPreparada = false; desbloquearAudio(); }
@@ -426,10 +524,10 @@
     btnPlayPause.addEventListener('click', () => {
       isPlaying = !isPlaying; // respuesta visual inmediata
       enviarComando(isPlaying ? 'play' : 'pause');
-      setTimeout(actualizarEstado, 500);
+      tOut(actualizarEstado, 500);
     });
-    document.getElementById('btnNext').addEventListener('click', () => { enviarComando('next'); setTimeout(actualizarEstado, 500); });
-    document.getElementById('btnPrev').addEventListener('click', () => { enviarComando('previous'); setTimeout(actualizarEstado, 500); });
+    document.getElementById('btnNext').addEventListener('click', () => { enviarComando('next'); tOut(actualizarEstado, 500); });
+    document.getElementById('btnPrev').addEventListener('click', () => { enviarComando('previous'); tOut(actualizarEstado, 500); });
 
     // ============ 1. PRECARGA (≈40 s antes del final) ============
     // Pide el guion + la voz al servidor, que devuelve el mp3 en base64 para decodificarlo en memoria.
@@ -537,14 +635,14 @@
           const r = await AudioDucking.start().catch(() => ({ granted: false }));
           duckNativoActivo = !!r.granted;
           if (duckNativoActivo) {
-            if (retenida) timers.push(setTimeout(() => enviarComando('pause'), Math.max(0, restante - 1200 - ajusteMs())));
+            if (retenida) timers.push(tOut(() => enviarComando('pause'), Math.max(0, restante - 1200 - ajusteMs())));
             await esperar(VOZ_RETRASO_MS);
           } else { duckNativoFallido = true; pausadaPorFallo = true; await enviarComando('pause'); }
         } else if (modoPausa) {
           await enviarComando('pause'); // sin control de volumen: la música se pausa y la voz suena sola
         } else {
           fadeBajada = fundirVolumen(volumenOriginal, VOLUMEN_DUCK, DUCK_FADE_MS);
-          if (retenida) timers.push(setTimeout(() => enviarComando('pause'), Math.max(0, restante - 1200 - ajusteMs())));
+          if (retenida) timers.push(tOut(() => enviarComando('pause'), Math.max(0, restante - 1200 - ajusteMs())));
           await esperar(VOZ_RETRASO_MS);
           if (!soportaVolumen) { pausadaPorFallo = true; await enviarComando('pause'); }
         }
@@ -567,19 +665,19 @@
 
         // 2) La música vuelve a subir bajo las últimas palabras (no hace falta en modo retenida: estará en pausa)
         if (!retenida && !modoPausa && !pausadaPorFallo && !duckNativoActivo) {
-          timers.push(setTimeout(() => {
+          timers.push(tOut(() => {
             fadeSubida = fadeBajada.then(() => fundirVolumen(VOLUMEN_DUCK, volumenOriginal, SUBIDA_FADE_MS));
           }, Math.max(0, duracionAudioDjMs - SUBIDA_ANTES_MS)));
         }
 
         // 3) Esperar a que acabe la voz (con margen de seguridad por si 'ended' no llega)
-        timers.push(setTimeout(terminarVoz, duracionAudioDjMs + 4000));
+        timers.push(tOut(terminarVoz, duracionAudioDjMs + 4000));
         await finVoz;
       } catch (err) {
         console.error('[DJ] Falló la locución (la canción NO se salta):', err);
         setBadge('bErrLocucion');
       } finally {
-        timers.forEach(clearTimeout);
+        timers.forEach(tClear);
         await Promise.all([fadeBajada, fadeSubida]); // que ningún fundido quede a medias
         setBadge('bSiguiente');
         if (duckNativoActivo) await AudioDucking.stop().catch(() => {}); // Android devuelve el volumen a Spotify
@@ -658,7 +756,7 @@
       }
 
       await enviarComando('seek', { position_ms: posMs });
-      setTimeout(actualizarEstado, 1500);
+      tOut(actualizarEstado, 1500);
     }
 
     // El progreso que informa Spotify llega con retraso VARIABLE (a veces 1-3 s). En vez de fiarnos de cada
@@ -685,7 +783,7 @@
       }
 
       // Datos de Spotify viejos (p. ej. al volver del segundo plano): no se actúa con un reloj dudoso
-      if (Date.now() - ultimoSondeoTs > 6000) return;
+      if (Date.now() - ultimoSondeoTs > 10000) return;
       if (!djActivo || !isPlaying || transicionEnCurso || djOmitidoId === ultimaCancionId) return;
 
       // a) Precargar. Ventana adaptativa: mínimo PRECARGA_MS (60 s), pero se adelanta si la voz es larga
@@ -729,7 +827,7 @@
         }
 
         tipoDispositivo = data.device?.type ?? null;
-        if (data.device?.id !== dispositivoId) { dispositivoId = data.device?.id ?? null; soportaVolumen = true; duckNativoFallido = false; } // al cambiar de dispositivo se vuelve a probar
+        if (data.device?.id !== dispositivoId) { dispositivoId = data.device?.id ?? null; soportaVolumen = ES_APP_ANDROID || !['Smartphone', 'Tablet'].includes(tipoDispositivo); duckNativoFallido = false; } // al cambiar de dispositivo se vuelve a probar (los móviles sin la app nativa no permiten volumen: modo pausa)
 
         // Re-sincronizar el reloj local
         const muestraTs = (t0 + Date.now()) / 2 - (data.progress_ms || 0); // mitad del viaje de ida y vuelta
@@ -787,18 +885,13 @@
     async function bucleEstado() {
       await actualizarEstado();
       const cerca = djActivo && duracionCancionMs && (duracionCancionMs - progresoActualMs()) < 75000;
-      setTimeout(bucleEstado, cerca ? 1000 : POLL_MS);
+      tOut(bucleEstado, cerca ? 1000 : POLL_MS);
     }
     bucleEstado();
 
-    // El reloj corre en un Web Worker: si la pestaña queda en segundo plano, el navegador frena los temporizadores
-    // normales (hasta 1 vez por segundo o menos), pero no los de un worker.
-    try {
-      const worker = new Worker(URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${TICK_MS});`], { type: 'text/javascript' })));
-      worker.onmessage = () => tick();
-    } catch (e) {
-      setInterval(tick, TICK_MS);
-    }
+    // El reloj local (cada TICK_MS) corre en el worker de arriba, que no se frena en segundo plano
+    if (relojW) relojW.postMessage({ op: 'tick', ms: TICK_MS });
+    else setInterval(tick, TICK_MS);
 
     // ============ 5. SESIÓN Y MENÚ ============
     // Al abrir: si hay sesión, empieza solo; si no, aparece la pantalla de login.
@@ -812,7 +905,7 @@
         document.getElementById('estadoSesion').textContent = t(sesionClave);
         if (sesionActiva) { actualizarEstado(); pedirUbicacion(); }
       } catch (e) {
-        setTimeout(comprobarSesion, 3000);
+        tOut(comprobarSesion, 3000);
       }
     }
     // Ubicación del dispositivo para el clima de SU ciudad. Se redondea a ~1 km y solo se envía al generar locuciones.
@@ -832,7 +925,11 @@
 
     // Al volver a la app (p. ej. tras bloquear la pantalla): reanudar el audio y refrescar Spotify al instante
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') { audioCtx?.resume?.().catch(() => {}); actualizarEstado(); }
+      if (document.visibilityState === 'visible') {
+        audioCtx?.resume?.().catch(() => {});
+        actualizarEstado();
+        if (djActivo && ES_MOVIL_WEB && !ES_APP_ANDROID) mantenerPantallaEncendida(true); // el sistema lo suelta al ocultar la página
+      }
     });
 
     aplicarIdioma();

@@ -9,7 +9,10 @@ import androidx.core.content.ContextCompat;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
+import android.net.Uri;
 import android.os.Build;
+import android.os.PowerManager;
+import android.provider.Settings;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -66,6 +69,21 @@ public class AudioDuckingPlugin extends Plugin {
         }
         ContextCompat.startForegroundService(getContext(), new Intent(getContext(), DjForegroundService.class));
         MainActivity.segundoPlano = true;
+        call.resolve();
+    }
+
+    /** Pide (una sola vez) que Android no "duerma" la app para ahorrar batería: sin esto algunos móviles congelan el DJ con la pantalla apagada */
+    @PluginMethod
+    public void pedirSinOptimizacionBateria(PluginCall call) {
+        try {
+            PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+            String paquete = getContext().getPackageName();
+            if (pm != null && !pm.isIgnoringBatteryOptimizations(paquete)) {
+                Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + paquete));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(i);
+            }
+        } catch (Exception e) { /* si el móvil no lo permite, no pasa nada */ }
         call.resolve();
     }
 
