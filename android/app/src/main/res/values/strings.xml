@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Bratify</string>
-    <string name="title_activity_main">Bratify</string>
+    <string name="app_name">Velvet Dial</string>
+    <string name="title_activity_main">Velvet Dial</string>
     <string name="package_name">com.bratify.radio</string>
     <string name="custom_url_scheme">com.bratify.radio</string>
 </resources>

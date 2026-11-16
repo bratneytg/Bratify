@@ -20,12 +20,12 @@ public class DjForegroundService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            nm.createNotificationChannel(new NotificationChannel("bratify_dj", "Bratify DJ", NotificationManager.IMPORTANCE_LOW));
+            nm.createNotificationChannel(new NotificationChannel("bratify_dj", "Velvet Dial DJ", NotificationManager.IMPORTANCE_LOW));
         }
         Intent abrir = new Intent(this, MainActivity.class).setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pi = PendingIntent.getActivity(this, 0, abrir, PendingIntent.FLAG_IMMUTABLE);
         Notification n = new NotificationCompat.Builder(this, "bratify_dj")
-                .setContentTitle("Bratify").setContentText("DJ IA activo")
+                .setContentTitle("Velvet Dial").setContentText(java.util.Locale.getDefault().getLanguage().equals("es") ? "DJ IA activo" : "AI DJ on air")
                 .setSmallIcon(android.R.drawable.ic_media_play).setContentIntent(pi).setOngoing(true).build();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
@@ -33,7 +33,7 @@ public class DjForegroundService extends Service {
             startForeground(1, n);
         }
         if (wakeLock == null) {
-            wakeLock = getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Bratify:dj");
+            wakeLock = getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "VelvetDial:dj");
             wakeLock.acquire(6 * 60 * 60 * 1000L); // máx. 6 h por seguridad
         }
         return START_STICKY;

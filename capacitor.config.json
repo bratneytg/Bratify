@@ -1,6 +1,6 @@
 {
   "appId": "com.bratify.radio",
-  "appName": "Bratify",
+  "appName": "Velvet Dial",
   "webDir": "public",
   "server": {
     "url": "https://bratify-pyy0.onrender.com",

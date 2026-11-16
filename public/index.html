@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Bratify — AI Radio Player</title>
+  <title>Velvet Dial</title>
+  <link rel="icon" type="image/png" href="/favicon.png" />
   <style>
     :root {
       --bg-black: #000000;
@@ -111,60 +112,75 @@
       body { padding-top: var(--safe-top); } /* deja libre la barra de estado (hora, notificaciones) */
       .content { padding: 16px; justify-content: center; }
     }
+    .logo { font-size: 20px; }
+    .logo-img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 14px rgba(160, 90, 200, .35); }
+    .logo-txt { letter-spacing: .5px; }
+    .overlay-login .logo { flex-direction: column; font-size: 26px; gap: 14px; }
+    .overlay-login .logo-img { width: 132px; height: 132px; box-shadow: 0 0 40px rgba(160, 90, 200, .45); }
+    .lang-sel { display: flex; gap: 6px; }
+    .lang-btn { flex: 1; background: #2a2a2a; border: 1px solid #3e3e3e; color: var(--text-secondary); padding: 7px 0; border-radius: 16px; font-size: 12px; font-weight: 700; cursor: pointer; transition: .15s; }
+    .lang-btn:hover { color: #fff; border-color: #6a6a6a; }
+    .lang-btn.activo { background: var(--brat-neon); color: #000; border-color: var(--brat-neon); }
+    .overlay-login .lang-sel { width: 140px; }
   </style>
 </head>
 <body>
 
   <!-- Pantalla de login: aparece solo si no hay sesión de Spotify. La sesión se renueva sola en el servidor. -->
   <div id="overlayLogin" class="overlay-login">
-    <div class="logo">🎙️ Bratify <span>AI</span></div>
-    <p>Conecta tu cuenta de Spotify para empezar.</p>
-    <a href="/login" class="btn-login" style="padding:12px 28px;font-size:15px;">Conectar con Spotify</a>
+    <div class="logo"><img class="logo-img" src="/logo.png" alt="" /><strong class="logo-txt">Velvet Dial</strong></div>
+    <p data-i18n="loginMsg"></p>
+    <a href="/login" class="btn-login" style="padding:12px 28px;font-size:15px;" data-i18n="btnLogin"></a>
+    <div class="lang-sel"><button class="lang-btn" data-lang="es">ES</button><button class="lang-btn" data-lang="en">EN</button></div>
   </div>
 
   <div class="main-container">
-    <button id="btnMenu" class="btn-menu" aria-label="Menú">☰</button>
+    <button id="btnMenu" class="btn-menu" data-i18n-aria="menu">☰</button>
     <aside class="sidebar">
-      <div class="logo">🎙️ Bratify <span>AI</span></div>
+      <div class="logo"><img class="logo-img" src="/logo.png" alt="" /><strong class="logo-txt">Velvet Dial</strong></div>
       <div class="token-box">
         <label>Spotify</label>
-        <span id="estadoSesion" style="font-size:12px;color:var(--text-secondary);">Comprobando sesión...</span>
-        <a href="/logout" style="font-size:12px;color:var(--text-secondary);">Cerrar sesión</a>
+        <span id="estadoSesion" style="font-size:12px;color:var(--text-secondary);"></span>
+        <a href="/logout" style="font-size:12px;color:var(--text-secondary);" data-i18n="logout"></a>
       </div>
       <div class="token-box">
-        <label for="inputAmbiente">Prompt para el DJ (opcional)</label>
-        <textarea id="inputAmbiente" maxlength="300" rows="4" placeholder="Ej.: Estoy en una cita romántica, haz comentarios románticos y profundos."
+        <label for="inputAmbiente" data-i18n="promptLabel"></label>
+        <textarea id="inputAmbiente" maxlength="300" rows="4" data-i18n-placeholder="promptPlaceholder"
           style="background:#2a2a2a;border:1px solid #3e3e3e;color:white;padding:8px;border-radius:4px;font-size:12px;resize:vertical;width:100%;"></textarea>
-        <span style="font-size: 11px; color: var(--text-secondary);">Se suma a lo que el DJ ya hace. Déjalo vacío para el modo normal.</span>
+        <span style="font-size: 11px; color: var(--text-secondary);" data-i18n="promptHelp"></span>
+      </div>
+      <div class="token-box">
+        <label data-i18n="idioma"></label>
+        <div class="lang-sel"><button class="lang-btn" data-lang="es">Español</button><button class="lang-btn" data-lang="en">English</button></div>
       </div>
     </aside>
 
     <main class="content">
-      <img id="mainCover" class="album-art" src="https://placehold.co/300x300/181818/8ace00?text=Bratify" alt="Carátula" />
-      <h1 id="mainTitle" class="track-title">Esperando reproducción...</h1>
-      <p id="mainArtist" class="track-artist">Abre Spotify y dale play</p>
+      <img id="mainCover" class="album-art" src="/logo.png" alt="" />
+      <h1 id="mainTitle" class="track-title"></h1>
+      <p id="mainArtist" class="track-artist"></p>
 
       <div class="dj-status-card">
-        <span class="dj-badge" id="djBadge">● MODO REPRODUCTOR NORMAL</span>
-        <p class="dj-script" id="djScript">Activa el Modo DJ para transiciones profesionales.</p>
+        <span class="dj-badge" id="djBadge"></span>
+        <p class="dj-script" id="djScript"></p>
       </div>
     </main>
   </div>
 
   <footer class="player-bar">
     <div class="now-playing-mini">
-      <img id="miniCover" class="mini-cover" src="https://placehold.co/60x60/181818/8ace00?text=♪" alt="" />
+      <img id="miniCover" class="mini-cover" src="/logo.png" alt="" />
       <div class="mini-info">
-        <h4 id="miniTitle">Sin reproducción</h4>
+        <h4 id="miniTitle"></h4>
         <p id="miniArtist">—</p>
       </div>
     </div>
 
     <div class="player-controls">
       <div class="control-buttons">
-        <button id="btnPrev" class="ctrl-btn" aria-label="Anterior"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 6h2v12H6zM9.5 12L18 18V6z"/></svg></button>
-        <button id="btnPlayPause" class="ctrl-btn play-pause-btn" aria-label="Reproducir/Pausar"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
-        <button id="btnNext" class="ctrl-btn" aria-label="Siguiente"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg></button>
+        <button id="btnPrev" class="ctrl-btn" data-i18n-aria="prev"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 6h2v12H6zM9.5 12L18 18V6z"/></svg></button>
+        <button id="btnPlayPause" class="ctrl-btn play-pause-btn" data-i18n-aria="playpause"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+        <button id="btnNext" class="ctrl-btn" data-i18n-aria="next"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg></button>
       </div>
       <div class="progress-container">
         <span id="timeCurrent">0:00</span>
@@ -174,16 +190,80 @@
     </div>
 
     <div class="right-controls">
-      <button id="btnToggleDj" class="dj-toggle-btn"><span class="dj-dot"></span>DJ IA</button>
+      <button id="btnToggleDj" class="dj-toggle-btn"></button>
     </div>
   </footer>
 
   <audio id="djAudioPlayer" preload="auto"></audio>
 
   <script>
+    // ============ IDIOMA DE LA INTERFAZ (ES / EN) ============
+    // Para añadir un texto: ponlo en los dos idiomas aquí y úsalo con data-i18n="clave" (HTML) o t('clave') (JS).
+    const I18N = {
+      es: {
+        titulo: 'Velvet Dial', loginMsg: 'Conecta tu cuenta de Spotify para empezar.', btnLogin: 'Conectar con Spotify',
+        menu: 'Menú', sesionComprobando: 'Comprobando sesión...', sesionOk: 'Conectado ✓', sesionNo: 'Sin conexión', logout: 'Cerrar sesión',
+        promptLabel: 'Prompt para el DJ (opcional)', promptPlaceholder: 'Ej.: Estoy en una cita romántica, haz comentarios románticos y profundos.',
+        promptHelp: 'Se suma a lo que el DJ ya hace. Déjalo vacío para el modo normal.', idioma: 'Idioma',
+        esperando: 'Esperando reproducción...', abreSpotify: 'Abre Spotify y dale play', sinReproduccion: 'Sin reproducción',
+        djDefault: 'Activa el Modo DJ para transiciones profesionales.',
+        prev: 'Anterior', playpause: 'Reproducir/Pausar', next: 'Siguiente',
+        djBtnOff: 'DJ IA', djBtnOn: 'DJ IA activo',
+        bReposoOn: '● DJ IA EN VIVO (ACTIVO)', bReposoOff: '● MODO REPRODUCTOR NORMAL', bPrecargando: '⏳ PRECARGANDO LOCUCIÓN...',
+        bListo: '✨ LISTO (DJ: {s}S)', bErrGenerar: '⚠️ ERROR AL GENERAR LA LOCUCIÓN', bPulsaDj: '⚠️ PULSA "DJ IA" PARA ACTIVAR EL AUDIO',
+        bAlAireRet: '🎚️ DJ AL AIRE (LLEGÓ JUSTO: SE RETIENE LA SIGUIENTE)', bAlAire: '🎚️ DJ AL AIRE (MÚSICA BAJA)...',
+        bErrLocucion: '⚠️ ERROR EN LA LOCUCIÓN', bSiguiente: '● DJ IA (SIGUIENTE CANCIÓN)', bSinTiempo: '● DJ: SIN TIEMPO PARA HABLAR EN ESTA CANCIÓN',
+      },
+      en: {
+        titulo: 'Velvet Dial', loginMsg: 'Connect your Spotify account to get started.', btnLogin: 'Connect with Spotify',
+        menu: 'Menu', sesionComprobando: 'Checking session...', sesionOk: 'Connected ✓', sesionNo: 'Not connected', logout: 'Log out',
+        promptLabel: 'DJ prompt (optional)', promptPlaceholder: "E.g.: I'm on a romantic date, make deep, romantic comments.",
+        promptHelp: 'Added on top of what the DJ already does. Leave empty for normal mode.', idioma: 'Language',
+        esperando: 'Waiting for playback...', abreSpotify: 'Open Spotify and hit play', sinReproduccion: 'Nothing playing',
+        djDefault: 'Turn on DJ mode for radio-style transitions.',
+        prev: 'Previous', playpause: 'Play/Pause', next: 'Next',
+        djBtnOff: 'AI DJ', djBtnOn: 'AI DJ on',
+        bReposoOn: '● AI DJ LIVE (ACTIVE)', bReposoOff: '● NORMAL PLAYER MODE', bPrecargando: '⏳ PREPARING THE LINK...',
+        bListo: '✨ READY (DJ: {s}S)', bErrGenerar: '⚠️ COULD NOT GENERATE THE LINK', bPulsaDj: '⚠️ TAP "AI DJ" TO ENABLE AUDIO',
+        bAlAireRet: '🎚️ DJ ON AIR (TIGHT TIMING: NEXT SONG HELD)', bAlAire: '🎚️ DJ ON AIR (MUSIC DUCKED)...',
+        bErrLocucion: '⚠️ ERROR PLAYING THE LINK', bSiguiente: '● AI DJ (NEXT SONG)', bSinTiempo: '● DJ: NO TIME TO SPEAK ON THIS SONG',
+      },
+    };
+    let idioma = localStorage.getItem('vd_idioma') || ((navigator.language || 'es').toLowerCase().startsWith('es') ? 'es' : 'en');
+    if (!I18N[idioma]) idioma = 'es';
+    const t = (clave, vars = {}) => (I18N[idioma][clave] ?? I18N.es[clave] ?? clave).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
+
+    // Estado "traducible": se guarda la CLAVE (no el texto) para poder redibujarlo al cambiar de idioma
+    let badgeClave = 'bReposoOff', badgeVars = {};
+    let sesionClave = 'sesionComprobando';
+    let hayCancion = false;          // mientras no haya canción, los títulos son los textos por defecto
+    let guionMostrado = false;       // mientras no haya locución, el cuadro del DJ muestra el texto por defecto
+
+    function aplicarIdioma() {
+      document.documentElement.lang = idioma;
+      document.title = t('titulo');
+      document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+      document.querySelectorAll('[data-i18n-aria]').forEach(el => { el.setAttribute('aria-label', t(el.dataset.i18nAria)); });
+      document.querySelectorAll('[data-lang]').forEach(b => b.classList.toggle('activo', b.dataset.lang === idioma));
+      document.getElementById('djBadge').textContent = t(badgeClave, badgeVars);
+      document.getElementById('estadoSesion').textContent = t(sesionClave);
+      btnToggleDj.innerHTML = '<span class="dj-dot"></span>' + t(djActivo ? 'djBtnOn' : 'djBtnOff');
+      if (!hayCancion) {
+        ['mainTitle', 'miniTitle'].forEach(id => { document.getElementById(id).textContent = t(id === 'mainTitle' ? 'esperando' : 'sinReproduccion'); });
+        document.getElementById('mainArtist').textContent = t('abreSpotify');
+      }
+      if (!guionMostrado) document.getElementById('djScript').textContent = t('djDefault');
+    }
+    document.querySelectorAll('[data-lang]').forEach(b => b.addEventListener('click', () => {
+      idioma = b.dataset.lang;
+      localStorage.setItem('vd_idioma', idioma);
+      aplicarIdioma();
+    }));
+
     // ============ CONFIGURACIÓN AJUSTABLE ============
     const PRECARGA_MS = 60000;     // cuánto antes del final se genera la locución (1 minuto)
-    const VOLUMEN_DUCK = 30;       // % de volumen de la música mientras habla el DJ
+    const VOLUMEN_DUCK = 20;       // % de volumen de la música mientras habla el DJ (en PC/altavoces; en el móvil lo decide Android)
     const ANTICIPACION_MS = 1200;  // la voz termina este tiempo ANTES del final de la canción; en ese hueco la música "sube" sola y entra la siguiente limpia
     const DUCK_FADE_MS = 2500;     // duración de la bajada de volumen (más alto = más suave)
     const SUBIDA_FADE_MS = 2500;   // duración de la subida de volumen al terminar la voz
@@ -261,8 +341,9 @@
     // El token real vive en el servidor (cookie httpOnly). Aquí solo sabemos si hay sesión.
     let sesionActiva = false;
     const getToken = () => (sesionActiva ? 'sesion' : '');
-    const setBadge = (txt) => { djBadge.textContent = txt; };
-    const badgeReposo = () => setBadge(djActivo ? '● DJ IA EN VIVO (ACTIVO)' : '● MODO REPRODUCTOR NORMAL');
+    // setBadge recibe una CLAVE de I18N (y variables opcionales), así el texto cambia de idioma al instante
+    const setBadge = (clave, vars = {}) => { badgeClave = clave; badgeVars = vars; djBadge.textContent = t(clave, vars); };
+    const badgeReposo = () => setBadge(djActivo ? 'bReposoOn' : 'bReposoOff');
 
 
     // Los navegadores bloquean el audio automático hasta que el usuario hace clic. Con Web Audio basta con
@@ -278,7 +359,7 @@
       // App Android: servicio en primer plano para que el DJ siga con la pantalla bloqueada
       if (ES_APP_ANDROID && AudioDucking) (djActivo ? AudioDucking.iniciarSegundoPlano() : AudioDucking.detenerSegundoPlano()).catch(() => {});
       btnToggleDj.classList.toggle('dj-on', djActivo);
-      btnToggleDj.innerHTML = '<span class="dj-dot"></span>' + (djActivo ? 'DJ IA activo' : 'DJ IA');
+      btnToggleDj.innerHTML = '<span class="dj-dot"></span>' + t(djActivo ? 'djBtnOn' : 'djBtnOff');
       if (djActivo && !transicionEnCurso) { locucionPreparada = false; desbloquearAudio(); }
       if (!transicionEnCurso && !precargandoEnCurso) badgeReposo();
     });
@@ -365,7 +446,7 @@
       const ambiente = ambienteActual(); // el prompt con el que se genera esta locución
       console.info(`[DJ] precarga iniciada (restante=${Math.round(duracionCancionMs - progresoActualMs())}ms, intento ${fallosPrecarga + 1})`);
       precargandoEnCurso = true;
-      setBadge('⏳ PRECARGANDO LOCUCIÓN...');
+      setBadge('bPrecargando');
 
       try {
         const res = await fetch('/api/crear-bloque', {
@@ -393,13 +474,14 @@
         console.info(`[DJ] locución lista: voz=${Math.round(duracionAudioDjMs)}ms, generación=${Math.round(tiempoGeneracionMs)}ms`);
 
         document.getElementById('djScript').textContent = `"${data.guion}"`;
+        guionMostrado = true;
         locucionPreparada = true;
-        setBadge(`✨ LISTO (DJ: ${Math.round(duracionAudioDjMs / 1000)}S)`);
+        setBadge('bListo', { s: Math.round(duracionAudioDjMs / 1000) });
       } catch (e) {
         console.error("Error al precargar locución:", e);
         fallosPrecarga++;
         ultimoFalloTs = performance.now();
-        setBadge('⚠️ ERROR AL GENERAR LA LOCUCIÓN');
+        setBadge('bErrGenerar');
       } finally {
         precargandoEnCurso = false;
       }
@@ -423,8 +505,8 @@
       // Comprobación previa: si el navegador aún no permite audio, se aborta SIN tocar volumen ni canción
       if (audioCtx?.state !== 'running') await audioCtx?.resume().catch(() => {});
       if (audioCtx?.state !== 'running') {
-        console.warn('[DJ] AudioContext bloqueado: pulsa el botón "DJ IA" para activarlo');
-        setBadge('⚠️ PULSA "DJ IA" PARA ACTIVAR EL AUDIO');
+        console.warn('[DJ] AudioContext bloqueado: pulsa el botón DJ para activarlo');
+        setBadge('bPulsaDj');
         locucionPreparada = false;
         return;
       }
@@ -436,7 +518,7 @@
       const modoPausa = !duckNativo && !soportaVolumen;
       const retenida = !modoPausa && !saltarAlTerminar && restante < tiempoNecesarioMs() - 1500;
       console.info(`[DJ] restante=${Math.round(restante)}ms voz=${Math.round(duracionAudioDjMs)}ms necesario=${Math.round(tiempoNecesarioMs())}ms ajuste=${ajusteMs()}ms vol=${volumenOriginal}% retenida=${retenida}`);
-      setBadge(retenida ? '🎚️ DJ AL AIRE (LLEGÓ JUSTO: SE RETIENE LA SIGUIENTE)' : '🎚️ DJ AL AIRE (MÚSICA BAJA)...');
+      setBadge(retenida ? 'bAlAireRet' : 'bAlAire');
 
       const timers = [];
       let duckNativoActivo = false;
@@ -485,11 +567,11 @@
         await finVoz;
       } catch (err) {
         console.error('[DJ] Falló la locución (la canción NO se salta):', err);
-        setBadge('⚠️ ERROR EN LA LOCUCIÓN');
+        setBadge('bErrLocucion');
       } finally {
         timers.forEach(clearTimeout);
         await Promise.all([fadeBajada, fadeSubida]); // que ningún fundido quede a medias
-        setBadge('● DJ IA (SIGUIENTE CANCIÓN)');
+        setBadge('bSiguiente');
         if (duckNativoActivo) await AudioDucking.stop().catch(() => {}); // Android devuelve el volumen a Spotify
         const detenida = retenida || modoPausa || pausadaPorFallo; // la música estuvo en pausa durante la voz
         if (!modoPausa && !pausadaPorFallo && !duckNativoActivo) await cambiarVolumenSpotify(volumenOriginal); // valor final exacto
@@ -559,7 +641,7 @@
         djOmitidoId = ultimaCancionId;
         locucionPreparada = false;
         liberarAudio();
-        if (djActivo && !precargandoEnCurso) setBadge('● DJ: SIN TIEMPO PARA HABLAR EN ESTA CANCIÓN');
+        if (djActivo && !precargandoEnCurso) setBadge('bSinTiempo');
       } else if (djOmitidoId === ultimaCancionId) {
         djOmitidoId = null; precargaIntentadaPara = null; fallosPrecarga = 0;
         if (!precargandoEnCurso) badgeReposo();
@@ -669,6 +751,7 @@
             if (!precargandoEnCurso) badgeReposo();
           }
 
+          hayCancion = true;
           document.getElementById('mainTitle').textContent = titulo;
           document.getElementById('mainArtist').textContent = artistas;
           document.getElementById('miniTitle').textContent = titulo;
@@ -715,7 +798,8 @@
         const data = await (await fetch('/api/estado-sesion')).json();
         sesionActiva = !!data.conectado;
         document.getElementById('overlayLogin').style.display = sesionActiva ? 'none' : 'flex';
-        document.getElementById('estadoSesion').textContent = sesionActiva ? 'Conectado ✓' : 'Sin conexión';
+        sesionClave = sesionActiva ? 'sesionOk' : 'sesionNo';
+        document.getElementById('estadoSesion').textContent = t(sesionClave);
         if (sesionActiva) { actualizarEstado(); pedirUbicacion(); }
       } catch (e) {
         setTimeout(comprobarSesion, 3000);
@@ -741,6 +825,7 @@
       if (document.visibilityState === 'visible') { audioCtx?.resume?.().catch(() => {}); actualizarEstado(); }
     });
 
+    aplicarIdioma();
     comprobarSesion();
 
     document.getElementById('btnMenu').addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('abierto'));
