@@ -146,3 +146,10 @@ app.post('/api/crear-bloque', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Servidor Bratify corriendo en http://localhost:${PORT}`);
 });
+
+// Ruta para que el cliente se aclare si hay sesión activa
+app.get('/api/estado-sesion', (req, res) => {
+  res.json({
+    conectado: !!refreshTokenGlobal
+  });
+});

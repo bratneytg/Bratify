@@ -613,6 +613,20 @@
     } catch (e) {
       setInterval(tick, TICK_MS);
     }
+
+    // Comprobar estado al cargar la página
+window.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const res = await fetch('/api/estado-sesion');
+    const data = await res.json();
+    if (data.conectado) {
+      console.log("✅ Sesión de Spotify activa en el servidor.");
+      // Aquí puedes ocultar el botón de conectar y mostrar los controles de la radio
+    }
+  } catch (e) {
+    console.error("Error comprobando sesión", e);
+  }
+});
   </script>
 </body>
 </html>
