@@ -225,6 +225,13 @@
     let posArrastreMs = 0;
     let ignorarProgresoHasta = 0;    // tras un salto, se ignora el progreso que informe Spotify unos instantes (aún no lo aplicó)
     let djOmitidoId = null;          // canción en la que el DJ no hablará (el usuario saltó cerca del final)
+    // Ducking nativo (solo en la app Android con Capacitor): Android baja el volumen de Spotify por su cuenta,
+    // sin tocar el volumen del teléfono. Ver AudioDuckingPlugin.java.
+    const ES_APP_ANDROID = window.Capacitor?.getPlatform?.() === 'android';
+    const AudioDucking = window.Capacitor?.Plugins?.AudioDucking ?? window.Capacitor?.registerPlugin?.('AudioDucking') ?? null;
+    let tipoDispositivo = null;      // tipo de dispositivo donde suena Spotify (Smartphone, Computer, Speaker...)
+    let duckNativoFallido = false;
+    const usaDuckNativo = () => ES_APP_ANDROID && !!AudioDucking && !duckNativoFallido && ['Smartphone', 'Tablet'].includes(tipoDispositivo);
     let soportaVolumen = true;       // false si el dispositivo rechaza cambios de volumen (móviles): entonces se usa el modo pausa
     let dispositivoId = null;
     let finTransicionTs = 0;         // cuándo terminó la última locución (para no leer el volumen mientras Spotify aún informa el bajado)
@@ -399,7 +406,7 @@
     // justo antes de que acabe, se espera a que termine la voz y se pasa a la siguiente (así nunca se pisan).
     // `saltarAlTerminar` (ya no se usa desde la interfaz): si es true, tras la voz se salta a la siguiente canción.
     // Modo pausa (sin control de volumen): la voz suena sola, así que basta con lo que dura la voz
-    const tiempoNecesarioMs = () => soportaVolumen ? VOZ_RETRASO_MS + duracionAudioDjMs + ANTICIPACION_MS + ajusteMs() : duracionAudioDjMs + 500;
+    const tiempoNecesarioMs = () => (soportaVolumen || usaDuckNativo()) ? VOZ_RETRASO_MS + duracionAudioDjMs + ANTICIPACION_MS + ajusteMs() : duracionAudioDjMs + 500;
 
     async function ejecutarTransicion({ saltarAlTerminar = false } = {}) {
       if (transicionEnCurso || !locucionPreparada || !bufferDj) return;
@@ -416,12 +423,14 @@
 
       const idTransicion = ultimaCancionId;
       const restante = duracionCancionMs - progresoActualMs();
-      const modoPausa = !soportaVolumen;
+      const duckNativo = usaDuckNativo();
+      const modoPausa = !duckNativo && !soportaVolumen;
       const retenida = !modoPausa && !saltarAlTerminar && restante < tiempoNecesarioMs() - 1500;
       console.info(`[DJ] restante=${Math.round(restante)}ms voz=${Math.round(duracionAudioDjMs)}ms necesario=${Math.round(tiempoNecesarioMs())}ms ajuste=${ajusteMs()}ms vol=${volumenOriginal}% retenida=${retenida}`);
       setBadge(retenida ? '🎚️ DJ AL AIRE (LLEGÓ JUSTO: SE RETIENE LA SIGUIENTE)' : '🎚️ DJ AL AIRE (MÚSICA BAJA)...');
 
       const timers = [];
+      let duckNativoActivo = false;
       let pausadaPorFallo = false; // el primer cambio de volumen falló: se pasa a modo pausa sobre la marcha
       let fadeBajada = Promise.resolve();
       let fadeSubida = Promise.resolve();
@@ -431,7 +440,15 @@
 
       try {
         // 1) La música empieza a bajar ya; la voz entra un instante después
-        if (modoPausa) {
+        if (duckNativo) {
+          // Android baja solo el volumen de Spotify mientras tengamos el foco de audio
+          const r = await AudioDucking.start().catch(() => ({ granted: false }));
+          duckNativoActivo = !!r.granted;
+          if (duckNativoActivo) {
+            if (retenida) timers.push(setTimeout(() => enviarComando('pause'), Math.max(0, restante - 1200 - ajusteMs())));
+            await esperar(VOZ_RETRASO_MS);
+          } else { duckNativoFallido = true; pausadaPorFallo = true; await enviarComando('pause'); }
+        } else if (modoPausa) {
           await enviarComando('pause'); // sin control de volumen: la música se pausa y la voz suena sola
         } else {
           fadeBajada = fundirVolumen(volumenOriginal, VOLUMEN_DUCK, DUCK_FADE_MS);
@@ -448,7 +465,7 @@
         vozReprodujo = true;
 
         // 2) La música vuelve a subir bajo las últimas palabras (no hace falta en modo retenida: estará en pausa)
-        if (!retenida && !modoPausa && !pausadaPorFallo) {
+        if (!retenida && !modoPausa && !pausadaPorFallo && !duckNativoActivo) {
           timers.push(setTimeout(() => {
             fadeSubida = fadeBajada.then(() => fundirVolumen(VOLUMEN_DUCK, volumenOriginal, SUBIDA_FADE_MS));
           }, Math.max(0, duracionAudioDjMs - SUBIDA_ANTES_MS)));
@@ -464,8 +481,9 @@
         timers.forEach(clearTimeout);
         await Promise.all([fadeBajada, fadeSubida]); // que ningún fundido quede a medias
         setBadge('● DJ IA (SIGUIENTE CANCIÓN)');
+        if (duckNativoActivo) await AudioDucking.stop().catch(() => {}); // Android devuelve el volumen a Spotify
         const detenida = retenida || modoPausa || pausadaPorFallo; // la música estuvo en pausa durante la voz
-        if (!modoPausa && !pausadaPorFallo) await cambiarVolumenSpotify(volumenOriginal); // valor final exacto
+        if (!modoPausa && !pausadaPorFallo && !duckNativoActivo) await cambiarVolumenSpotify(volumenOriginal); // valor final exacto
 
         if (detenida) {
           if (vozReprodujo) {
@@ -606,7 +624,8 @@
           volumenOriginal = data.device.volume_percent;
         }
 
-        if (data.device?.id !== dispositivoId) { dispositivoId = data.device?.id ?? null; soportaVolumen = true; } // al cambiar de dispositivo se vuelve a probar
+        tipoDispositivo = data.device?.type ?? null;
+        if (data.device?.id !== dispositivoId) { dispositivoId = data.device?.id ?? null; soportaVolumen = true; duckNativoFallido = false; } // al cambiar de dispositivo se vuelve a probar
 
         // Re-sincronizar el reloj local
         const muestraTs = (t0 + performance.now()) / 2 - (data.progress_ms || 0); // mitad del viaje de ida y vuelta

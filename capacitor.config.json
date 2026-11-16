@@ -4,6 +4,12 @@
   "webDir": "public",
   "server": {
     "url": "https://bratify-pyy0.onrender.com",
-    "cleartext": true
+    "allowNavigation": [
+      "bratify-pyy0.onrender.com",
+      "accounts.spotify.com",
+      "*.spotify.com",
+      "*.scdn.co",
+      "*.spotifycdn.com"
+    ]
   }
 }
