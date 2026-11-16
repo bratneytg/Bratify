@@ -160,6 +160,11 @@
         <span style="font-size: 11px; color: var(--text-secondary);" data-i18n="promptHelp"></span>
       </div>
       <div class="token-box">
+        <label data-i18n="diagTitulo"></label>
+        <button id="btnDiag" class="lang-btn" data-i18n="diagBoton"></button>
+        <textarea id="diagTexto" readonly rows="10" style="display:none;background:#2a2a2a;border:1px solid #3e3e3e;color:#cfcfcf;padding:6px;border-radius:4px;font-size:10px;width:100%;"></textarea>
+      </div>
+      <div class="token-box">
         <label data-i18n="idioma"></label>
         <div class="lang-sel"><button class="lang-btn" data-lang="es">Español</button><button class="lang-btn" data-lang="en">English</button></div>
       </div>
@@ -224,6 +229,7 @@
         bAlAireRet: '🎚️ DJ AL AIRE (LLEGÓ JUSTO: SE RETIENE LA SIGUIENTE)', bAlAire: '🎚️ DJ AL AIRE (MÚSICA BAJA)...',
         bErrLocucion: '⚠️ ERROR EN LA LOCUCIÓN', bSiguiente: '● DJ IA (SIGUIENTE CANCIÓN)', bSinTiempo: '● DJ: SIN TIEMPO PARA HABLAR EN ESTA CANCIÓN',
         avisoIosInstalar: 'Para instalarla en tu iPhone: pulsa Compartir y luego "Añadir a pantalla de inicio". Ojo: en iPhone el DJ solo habla con la app abierta y la pantalla encendida.',
+        diagTitulo: 'Diagnóstico', diagBoton: 'Mostrar y copiar registro',
         avisoIosAbierta: 'En iPhone el DJ solo habla con la app abierta y la pantalla encendida. No bloquees el teléfono mientras escuchas.',
       },
       en: {
@@ -240,6 +246,7 @@
         bAlAireRet: '🎚️ DJ ON AIR (TIGHT TIMING: NEXT SONG HELD)', bAlAire: '🎚️ DJ ON AIR (MUSIC DUCKED)...',
         bErrLocucion: '⚠️ ERROR PLAYING THE LINK', bSiguiente: '● AI DJ (NEXT SONG)', bSinTiempo: '● DJ: NO TIME TO SPEAK ON THIS SONG',
         avisoIosInstalar: 'To install it on your iPhone: tap Share, then "Add to Home Screen". Note: on iPhone the DJ only speaks while the app is open and the screen is on.',
+        diagTitulo: 'Diagnostics', diagBoton: 'Show and copy log',
         avisoIosAbierta: 'On iPhone the DJ only speaks while the app is open and the screen is on. Do not lock the phone while listening.',
       },
     };
@@ -279,6 +286,14 @@
       document.getElementById('avisoIosTexto').textContent = t(clave);
       caja.style.display = 'block';
     }
+    document.getElementById('btnDiag').addEventListener('click', () => {
+      const caja = document.getElementById('diagTexto');
+      caja.value = diag.join('\n');
+      caja.style.display = 'block';
+      caja.scrollTop = caja.scrollHeight;
+      caja.focus(); caja.select();
+      try { navigator.clipboard?.writeText(caja.value).catch(() => document.execCommand('copy')); } catch (e) { try { document.execCommand('copy'); } catch (e2) { /* se puede copiar a mano */ } }
+    });
     document.getElementById('avisoIosCerrar').addEventListener('click', () => {
       localStorage.setItem('vd_aviso_' + (ES_STANDALONE ? 'avisoIosAbierta' : 'avisoIosInstalar'), '1');
       document.getElementById('avisoIos').style.display = 'none';
@@ -338,6 +353,20 @@
       if (pendientesW.delete(id)) relojW.postMessage({ op: 'clear', id });
     };
     const esperar = (ms) => new Promise(r => tOut(r, ms));
+
+    // Señal de cancelación con tiempo máximo (usa el worker): una petición que se queda colgada con la pantalla apagada
+    // ya no deja al DJ parado para siempre.
+    const limite = (ms) => { const c = new AbortController(); tOut(() => c.abort(), ms); return c.signal; };
+
+    // ============ DIAGNÓSTICO ============
+    // Registro de eventos (se guarda en el móvil). Menú ▸ "Diagnóstico" lo muestra y lo copia para poder revisarlo.
+    const diag = [];
+    try { const previo = JSON.parse(localStorage.getItem('vd_diag') || '[]'); if (previo.length) diag.push(...previo.slice(-120), '──── nueva sesión ────'); } catch (e) { /* sin registro previo */ }
+    function dlog(msg) {
+      diag.push(new Date().toTimeString().slice(0, 8) + ' ' + msg);
+      while (diag.length > 260) diag.shift();
+      try { localStorage.setItem('vd_diag', JSON.stringify(diag.slice(-150))); } catch (e) { /* lleno: se ignora */ }
+    }
 
     // Un Web Lock abierto evita que Chrome "congele" la página en segundo plano (se mantiene mientras la página viva)
     try { navigator.locks?.request('velvet-dial-vivo', () => new Promise(() => {})); } catch (e) { /* opcional */ }
@@ -440,11 +469,30 @@
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         // Si el sistema suspende el audio (llamada, segundo plano...) con el DJ activo, se reanuda solo
-        audioCtx.onstatechange = () => { if (djActivo && audioCtx.state !== 'running') audioCtx.resume().catch(() => {}); };
+        audioCtx.onstatechange = () => { dlog(`audioCtx → ${audioCtx.state}`); if (djActivo && audioCtx.state !== 'running') audioCtx.resume().catch(() => {}); };
       }
       if (audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
     }
     const desbloquearAudio = asegurarAudioCtx;
+
+    // Tono de 25 Hz a ~-50 dB: no se oye (los altavoces de móvil ni lo reproducen) pero no es silencio absoluto, así que Chrome
+    // trata la página como "con audio" y no la frena ni la congela en segundo plano. No usa el foco de audio: Spotify no se entera.
+    // No se usa en iPhone: ahí mantendría la sesión de audio abierta e interrumpiría a Spotify.
+    let mantenedorOsc = null;
+    function mantenerAudioVivo(activar) {
+      try {
+        if (!activar) { mantenedorOsc?.stop(); mantenedorOsc = null; return; }
+        if (ES_IOS || mantenedorOsc || !audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        osc.frequency.value = 25;
+        const g = audioCtx.createGain();
+        g.gain.value = 0.003;
+        osc.connect(g).connect(audioCtx.destination);
+        osc.start();
+        mantenedorOsc = osc;
+        dlog('audio de mantenimiento activo');
+      } catch (e) { dlog('⚠ audio de mantenimiento: ' + e.message); }
+    }
 
     btnToggleDj.addEventListener('click', () => {
       djActivo = !djActivo;
@@ -460,6 +508,8 @@
       btnToggleDj.classList.toggle('dj-on', djActivo);
       btnToggleDj.innerHTML = '<span class="dj-dot"></span>' + t(djActivo ? 'djBtnOn' : 'djBtnOff');
       if (djActivo && !transicionEnCurso) { locucionPreparada = false; desbloquearAudio(); }
+      mantenerAudioVivo(djActivo);
+      dlog(djActivo ? 'DJ activado' : 'DJ desactivado');
       if (!transicionEnCurso && !precargandoEnCurso) badgeReposo();
     });
 
@@ -472,7 +522,8 @@
         await fetch(`/api/player/${action}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ spotifyToken, ...extraBody })
+          body: JSON.stringify({ spotifyToken, ...extraBody }),
+          signal: limite(10000)
         });
       } catch (err) {
         console.error("Error comando Spotify:", err);
@@ -487,7 +538,8 @@
         const res = await fetch('/api/player/volume', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ spotifyToken, volume_percent: percent })
+          body: JSON.stringify({ spotifyToken, volume_percent: percent }),
+          signal: limite(10000)
         });
         const data = await res.json();
         if (!data.success) {
@@ -544,6 +596,7 @@
       const t0 = performance.now();
       const ambiente = ambienteActual(); // el prompt con el que se genera esta locución
       console.info(`[DJ] precarga iniciada (restante=${Math.round(duracionCancionMs - progresoActualMs())}ms, intento ${fallosPrecarga + 1})`);
+      dlog(`precarga iniciada (restante ${Math.round((duracionCancionMs - progresoActualMs()) / 1000)}s, intento ${fallosPrecarga + 1})`);
       precargandoEnCurso = true;
       setBadge('bPrecargando');
 
@@ -551,7 +604,8 @@
         const res = await fetch('/api/crear-bloque', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ spotifyToken, ultimaCancionConocida: ultimaCancionNombre, ambiente, ubicacion })
+          body: JSON.stringify({ spotifyToken, ultimaCancionConocida: ultimaCancionNombre, ambiente, ubicacion }),
+          signal: limite(60000) // si se cuelga, falla y se reintenta (antes se quedaba "precargando" para siempre)
         });
         const data = await res.json();
         if (!data.success) throw new Error(data.error || 'El servidor no pudo crear la locución');
@@ -566,11 +620,13 @@
         if (ambiente !== ambienteActual()) { precargaIntentadaPara = null; return; }
 
         asegurarAudioCtx();
+        dlog(`audio recibido, decodificando (audioCtx=${audioCtx.state})`);
         bufferDj = await audioCtx.decodeAudioData(bytes.buffer);
         duracionAudioDjMs = bufferDj.duration * 1000; // duración EXACTA de la voz
         tiempoGeneracionMs = performance.now() - t0;
         fallosPrecarga = 0;
         console.info(`[DJ] locución lista: voz=${Math.round(duracionAudioDjMs)}ms, generación=${Math.round(tiempoGeneracionMs)}ms`);
+        dlog(`locución lista (voz ${Math.round(duracionAudioDjMs / 1000)}s, generación ${Math.round(tiempoGeneracionMs / 1000)}s)`);
 
         document.getElementById('djScript').textContent = `"${data.guion}"`;
         guionMostrado = true;
@@ -578,6 +634,7 @@
         setBadge('bListo', { s: Math.round(duracionAudioDjMs / 1000) });
       } catch (e) {
         console.error("Error al precargar locución:", e);
+        dlog(`⚠ precarga fallida: ${e.name === 'AbortError' ? 'sin respuesta (límite de tiempo)' : e.message}`);
         fallosPrecarga++;
         ultimoFalloTs = performance.now();
         setBadge('bErrGenerar');
@@ -605,6 +662,7 @@
       if (audioCtx?.state !== 'running') await audioCtx?.resume().catch(() => {});
       if (audioCtx?.state !== 'running') {
         console.warn('[DJ] AudioContext bloqueado: pulsa el botón DJ para activarlo');
+        dlog(`⚠ audio bloqueado (audioCtx=${audioCtx?.state}): no se emite la locución`);
         setBadge('bPulsaDj');
         locucionPreparada = false;
         return;
@@ -616,6 +674,7 @@
       const duckNativo = usaDuckNativo();
       const modoPausa = !duckNativo && !soportaVolumen;
       const retenida = !modoPausa && !saltarAlTerminar && restante < tiempoNecesarioMs() - 1500;
+      dlog(`transición: restante ${Math.round(restante / 1000)}s, voz ${Math.round(duracionAudioDjMs / 1000)}s, modo ${duckNativo ? 'ducking nativo' : modoPausa ? 'pausa' : 'volumen'}${retenida ? ' (retenida)' : ''}, audioCtx=${audioCtx?.state}`);
       console.info(`[DJ] restante=${Math.round(restante)}ms voz=${Math.round(duracionAudioDjMs)}ms necesario=${Math.round(tiempoNecesarioMs())}ms ajuste=${ajusteMs()}ms vol=${volumenOriginal}% retenida=${retenida}`);
       setBadge(retenida ? 'bAlAireRet' : 'bAlAire');
 
@@ -675,6 +734,7 @@
         await finVoz;
       } catch (err) {
         console.error('[DJ] Falló la locución (la canción NO se salta):', err);
+        dlog(`⚠ locución fallida: ${err.message}`);
         setBadge('bErrLocucion');
       } finally {
         timers.forEach(tClear);
@@ -767,7 +827,16 @@
       return Math.min(Date.now() - inicioCancionTs, duracionCancionMs);
     }
 
+    let ultimoTickTs = 0, ultimoLatidoTs = 0;
     function tick() {
+      const ahoraTick = Date.now();
+      if (ultimoTickTs && ahoraTick - ultimoTickTs > 1500) dlog(`⚠ el reloj se paró ${Math.round((ahoraTick - ultimoTickTs) / 1000)}s (página en segundo plano/frenada)`);
+      ultimoTickTs = ahoraTick;
+      gestionarPoll();
+      if (djActivo && ahoraTick - ultimoLatidoTs > 30000) { // latido del DJ cada 30 s: explica por qué actúa o no
+        ultimoLatidoTs = ahoraTick;
+        dlog(`♥ resta ${Math.round((duracionCancionMs - progresoActualMs()) / 1000)}s · sonando=${isPlaying} · lista=${locucionPreparada} · precargando=${precargandoEnCurso} · enCurso=${transicionEnCurso} · spotify hace ${Math.round((ahoraTick - ultimoSondeoTs) / 1000)}s · ctx=${audioCtx?.state} · ${document.visibilityState}`);
+      }
       if (!duracionCancionMs) return;
       const progreso = progresoActualMs();
       const restante = duracionCancionMs - progreso;
@@ -811,7 +880,7 @@
       try {
         const t0 = Date.now(); // hora real: performance.now() se queda parado cuando el móvil duerme
         const volFiableAlPedir = volumenFiable();
-        const res = await fetch('/api/estado', { headers: { 'Authorization': `Bearer ${token}` } });
+        const res = await fetch('/api/estado', { headers: { 'Authorization': `Bearer ${token}` }, signal: limite(8000) });
         if (res.status === 401) { comprobarSesion(); return; } // el servidor intenta renovar; si no puede, aparece el login
         if (!res.ok) return;
         const data = await res.json();
@@ -853,6 +922,7 @@
           ultimaCancionId = data.item.id;
           fallosPrecarga = 0;
           console.info('[DJ] canción nueva:', titulo);
+          dlog(`canción nueva: ${titulo} (${Math.round((data.item.duration_ms || 0) / 1000)}s)`);
           if (!transicionEnCurso) {
             locucionPreparada = false;
             liberarAudio();
@@ -881,13 +951,18 @@
       return `${min}:${sec < 10 ? '0' : ''}${sec}`;
     }
 
-    // Consulta a Spotify: cada POLL_MS, y cada 1 s durante el último minuto y cuarto (más muestras = mejor estimación)
-    async function bucleEstado() {
-      await actualizarEstado();
+    // Consulta a Spotify: cada POLL_MS, y cada 1 s durante el último minuto y cuarto (más muestras = mejor estimación).
+    // La lanza el reloj (tick) en vez de una cadena de temporizadores: si una consulta se atasca, se reinicia sola.
+    let pollEnCurso = false, pollId = 0, pollIniTs = 0, ultimoPollIniTs = 0;
+    function gestionarPoll() {
+      const ahora = Date.now();
+      if (pollEnCurso && ahora - pollIniTs > 12000) { dlog('⚠ consulta a Spotify atascada: se reinicia'); pollId++; pollEnCurso = false; }
       const cerca = djActivo && duracionCancionMs && (duracionCancionMs - progresoActualMs()) < 75000;
-      tOut(bucleEstado, cerca ? 1000 : POLL_MS);
+      if (pollEnCurso || ahora - ultimoPollIniTs < (cerca ? 1000 : POLL_MS)) return;
+      const miId = ++pollId;
+      pollEnCurso = true; pollIniTs = ultimoPollIniTs = ahora;
+      actualizarEstado().finally(() => { if (miId === pollId) pollEnCurso = false; });
     }
-    bucleEstado();
 
     // El reloj local (cada TICK_MS) corre en el worker de arriba, que no se frena en segundo plano
     if (relojW) relojW.postMessage({ op: 'tick', ms: TICK_MS });
@@ -925,6 +1000,7 @@
 
     // Al volver a la app (p. ej. tras bloquear la pantalla): reanudar el audio y refrescar Spotify al instante
     document.addEventListener('visibilitychange', () => {
+      dlog('página ' + (document.visibilityState === 'visible' ? 'visible' : 'oculta'));
       if (document.visibilityState === 'visible') {
         audioCtx?.resume?.().catch(() => {});
         actualizarEstado();
@@ -932,6 +1008,7 @@
       }
     });
 
+    dlog(`inicio · ${ES_APP_ANDROID ? 'app Android' : ES_IOS ? 'iPhone/iPad' : 'web'} · worker=${!!relojW}`);
     aplicarIdioma();
     comprobarSesion();
 
