@@ -80,6 +80,32 @@
       .right-controls { justify-content: center; }
       .progress-bar { height: 10px; }
     }
+
+    /* ===== Estilo tipo Spotify ===== */
+    .ctrl-btn { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; font-size: 0; transition: color .15s, transform .15s; }
+    .ctrl-btn:hover { color: #fff; transform: scale(1.1); }
+    .ctrl-btn:active { transform: scale(.94); }
+    .play-pause-btn { width: 40px; height: 40px; background: #fff; color: #000; }
+    .play-pause-btn:hover { background: #fff; color: #000; transform: scale(1.07); }
+    .control-buttons { gap: 24px; }
+    .progress-bar { position: relative; height: 4px; overflow: visible; border-radius: 2px; transition: none; }
+    .progress-bar:hover { height: 4px; }
+    .progress-bar::before { content: ''; position: absolute; inset: -10px 0; } /* zona de toque más grande */
+    .progress-fill { position: relative; border-radius: 2px; }
+    .progress-fill::after { content: ''; position: absolute; right: -6px; top: 50%; width: 12px; height: 12px; margin-top: -6px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.5); opacity: 0; transition: opacity .15s; }
+    .progress-bar:hover .progress-fill::after { opacity: 1; }
+    .dj-toggle-btn { display: flex; align-items: center; gap: 8px; padding: 9px 18px; letter-spacing: .3px; transition: transform .15s, background .2s, box-shadow .2s, color .2s; }
+    .dj-toggle-btn:hover { transform: scale(1.04); color: #fff; border-color: #6a6a6a; }
+    .dj-toggle-btn.dj-on { box-shadow: 0 0 18px rgba(138, 206, 0, .45); }
+    .dj-toggle-btn.dj-on:hover { color: #000; }
+    .dj-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; opacity: .7; }
+    .dj-on .dj-dot { opacity: 1; animation: pulso 1.4s ease-in-out infinite; }
+    @keyframes pulso { 50% { transform: scale(1.6); opacity: .4; } }
+    .btn-login { display: inline-block; border-radius: 500px; letter-spacing: .3px; transition: transform .15s, background .2s; }
+    .btn-login:hover { transform: scale(1.04); }
+    .token-box a { color: var(--text-secondary); text-decoration: none; font-weight: 700; }
+    .token-box a:hover { color: #fff; text-decoration: underline; }
+    @media (max-width: 768px) { .progress-fill::after { opacity: 1; } .ctrl-btn { width: 44px; height: 44px; } .play-pause-btn { width: 48px; height: 48px; } }
   </style>
 </head>
 <body>
@@ -106,9 +132,6 @@
           style="background:#2a2a2a;border:1px solid #3e3e3e;color:white;padding:8px;border-radius:4px;font-size:12px;resize:vertical;width:100%;"></textarea>
         <span style="font-size: 11px; color: var(--text-secondary);">Se suma a lo que el DJ ya hace. Déjalo vacío para el modo normal.</span>
       </div>
-      <p style="font-size: 12px; color: var(--text-secondary);">
-        Precarga a 1 minuto del final. La música baja al 30% mientras habla el DJ, que termina justo al acabar la canción.
-      </p>
     </aside>
 
     <main class="content">
@@ -134,10 +157,9 @@
 
     <div class="player-controls">
       <div class="control-buttons">
-        <button id="btnShuffle" class="ctrl-btn">🔀</button>
-        <button id="btnPrev" class="ctrl-btn">⏮</button>
-        <button id="btnPlayPause" class="ctrl-btn play-pause-btn">▶</button>
-        <button id="btnNext" class="ctrl-btn">⏭</button>
+        <button id="btnPrev" class="ctrl-btn" aria-label="Anterior"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 6h2v12H6zM9.5 12L18 18V6z"/></svg></button>
+        <button id="btnPlayPause" class="ctrl-btn play-pause-btn" aria-label="Reproducir/Pausar"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+        <button id="btnNext" class="ctrl-btn" aria-label="Siguiente"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg></button>
       </div>
       <div class="progress-container">
         <span id="timeCurrent">0:00</span>
@@ -147,7 +169,7 @@
     </div>
 
     <div class="right-controls">
-      <button id="btnToggleDj" class="dj-toggle-btn">🎧 DJ IA: OFF</button>
+      <button id="btnToggleDj" class="dj-toggle-btn"><span class="dj-dot"></span>DJ IA</button>
     </div>
   </footer>
 
@@ -203,13 +225,14 @@
     let posArrastreMs = 0;
     let ignorarProgresoHasta = 0;    // tras un salto, se ignora el progreso que informe Spotify unos instantes (aún no lo aplicó)
     let djOmitidoId = null;          // canción en la que el DJ no hablará (el usuario saltó cerca del final)
+    let soportaVolumen = true;       // false si el dispositivo rechaza cambios de volumen (móviles): entonces se usa el modo pausa
+    let dispositivoId = null;
     let finTransicionTs = 0;         // cuándo terminó la última locución (para no leer el volumen mientras Spotify aún informa el bajado)
     let fallosPrecarga = 0;          // intentos fallidos de generar la locución de la canción actual
     let ultimoFalloTs = 0;
     // El volumen solo es fiable si no hay locución en curso ni ha terminado hace poco
     const volumenFiable = () => !transicionEnCurso && performance.now() - finTransicionTs > 8000;
     let volumenOriginal = 100;       // volumen del usuario, para restaurarlo tras la locución
-    let shuffleActivo = false;
     let bufferDj = null;             // locución ya decodificada en memoria (Web Audio)
     let audioCtx = null;             // contexto de audio, se activa con un clic del usuario
     let precargaIntentadaPara = null; // evita reintentar en bucle si la precarga falla
@@ -217,7 +240,6 @@
 
     const btnToggleDj = document.getElementById('btnToggleDj');
     const btnPlayPause = document.getElementById('btnPlayPause');
-    const btnShuffle = document.getElementById('btnShuffle');
     const djBadge = document.getElementById('djBadge');
     const djAudio = document.getElementById('djAudioPlayer');
     djAudio.volume = 1.0; // la voz del DJ siempre al 100%; solo se baja la música (volumen de Spotify)
@@ -240,7 +262,7 @@
     btnToggleDj.addEventListener('click', () => {
       djActivo = !djActivo;
       btnToggleDj.classList.toggle('dj-on', djActivo);
-      btnToggleDj.textContent = djActivo ? '🎙️ DJ IA: ON' : '🎧 DJ IA: OFF';
+      btnToggleDj.innerHTML = '<span class="dj-dot"></span>' + (djActivo ? 'DJ IA activo' : 'DJ IA');
       if (djActivo && !transicionEnCurso) { locucionPreparada = false; desbloquearAudio(); }
       if (!transicionEnCurso && !precargandoEnCurso) badgeReposo();
     });
@@ -272,7 +294,10 @@
           body: JSON.stringify({ spotifyToken, volume_percent: percent })
         });
         const data = await res.json();
-        if (!data.success) console.warn("⚠️ Spotify rechazó el cambio de volumen (¿dispositivo sin control de volumen o sin Premium?)", data.details);
+        if (!data.success) {
+          console.warn("⚠️ Spotify rechazó el cambio de volumen (móvil o sin Premium)", data.details);
+          if (res.status === 403) soportaVolumen = false; // VOLUME_CONTROL_DISALLOWED: Spotify no deja controlar el volumen del móvil
+        }
         return !!data.success;
       } catch (e) {
         console.error("Error cambiando volumen en Spotify:", e);
@@ -287,6 +312,7 @@
       const inicio = performance.now();
       let ultimo = desde;
       while (true) {
+        if (!soportaVolumen) return; // este dispositivo no permite cambiar el volumen
         const t = Math.min(1, (performance.now() - inicio) / duracionMs);
         const curva = t * t * (3 - 2 * t);
         const valor = Math.round(desde + (hasta - desde) * curva);
@@ -306,11 +332,6 @@
     });
     document.getElementById('btnNext').addEventListener('click', () => { enviarComando('next'); setTimeout(actualizarEstado, 500); });
     document.getElementById('btnPrev').addEventListener('click', () => { enviarComando('previous'); setTimeout(actualizarEstado, 500); });
-    btnShuffle.addEventListener('click', () => {
-      shuffleActivo = !shuffleActivo;
-      btnShuffle.style.color = shuffleActivo ? 'var(--brat-neon)' : '';
-      enviarComando('shuffle', { state: shuffleActivo });
-    });
 
     // ============ 1. PRECARGA (≈40 s antes del final) ============
     // Pide el guion + la voz al servidor, que devuelve el mp3 en base64 para decodificarlo en memoria.
@@ -377,7 +398,8 @@
     // Si la locución llegó TARDE (no cabe antes del final), se usa el modo "retenida": se pausa la canción
     // justo antes de que acabe, se espera a que termine la voz y se pasa a la siguiente (así nunca se pisan).
     // `saltarAlTerminar` (ya no se usa desde la interfaz): si es true, tras la voz se salta a la siguiente canción.
-    const tiempoNecesarioMs = () => VOZ_RETRASO_MS + duracionAudioDjMs + ANTICIPACION_MS + ajusteMs();
+    // Modo pausa (sin control de volumen): la voz suena sola, así que basta con lo que dura la voz
+    const tiempoNecesarioMs = () => soportaVolumen ? VOZ_RETRASO_MS + duracionAudioDjMs + ANTICIPACION_MS + ajusteMs() : duracionAudioDjMs + 500;
 
     async function ejecutarTransicion({ saltarAlTerminar = false } = {}) {
       if (transicionEnCurso || !locucionPreparada || !bufferDj) return;
@@ -394,11 +416,13 @@
 
       const idTransicion = ultimaCancionId;
       const restante = duracionCancionMs - progresoActualMs();
-      const retenida = !saltarAlTerminar && restante < tiempoNecesarioMs() - 1500;
+      const modoPausa = !soportaVolumen;
+      const retenida = !modoPausa && !saltarAlTerminar && restante < tiempoNecesarioMs() - 1500;
       console.info(`[DJ] restante=${Math.round(restante)}ms voz=${Math.round(duracionAudioDjMs)}ms necesario=${Math.round(tiempoNecesarioMs())}ms ajuste=${ajusteMs()}ms vol=${volumenOriginal}% retenida=${retenida}`);
       setBadge(retenida ? '🎚️ DJ AL AIRE (LLEGÓ JUSTO: SE RETIENE LA SIGUIENTE)' : '🎚️ DJ AL AIRE (MÚSICA BAJA)...');
 
       const timers = [];
+      let pausadaPorFallo = false; // el primer cambio de volumen falló: se pasa a modo pausa sobre la marcha
       let fadeBajada = Promise.resolve();
       let fadeSubida = Promise.resolve();
       let terminarVoz;
@@ -407,9 +431,14 @@
 
       try {
         // 1) La música empieza a bajar ya; la voz entra un instante después
-        fadeBajada = fundirVolumen(volumenOriginal, VOLUMEN_DUCK, DUCK_FADE_MS);
-        if (retenida) timers.push(setTimeout(() => enviarComando('pause'), Math.max(0, restante - 1200 - ajusteMs())));
-        await esperar(VOZ_RETRASO_MS);
+        if (modoPausa) {
+          await enviarComando('pause'); // sin control de volumen: la música se pausa y la voz suena sola
+        } else {
+          fadeBajada = fundirVolumen(volumenOriginal, VOLUMEN_DUCK, DUCK_FADE_MS);
+          if (retenida) timers.push(setTimeout(() => enviarComando('pause'), Math.max(0, restante - 1200 - ajusteMs())));
+          await esperar(VOZ_RETRASO_MS);
+          if (!soportaVolumen) { pausadaPorFallo = true; await enviarComando('pause'); }
+        }
 
         const fuente = audioCtx.createBufferSource();
         fuente.buffer = bufferDj;
@@ -419,7 +448,7 @@
         vozReprodujo = true;
 
         // 2) La música vuelve a subir bajo las últimas palabras (no hace falta en modo retenida: estará en pausa)
-        if (!retenida) {
+        if (!retenida && !modoPausa && !pausadaPorFallo) {
           timers.push(setTimeout(() => {
             fadeSubida = fadeBajada.then(() => fundirVolumen(VOLUMEN_DUCK, volumenOriginal, SUBIDA_FADE_MS));
           }, Math.max(0, duracionAudioDjMs - SUBIDA_ANTES_MS)));
@@ -435,12 +464,15 @@
         timers.forEach(clearTimeout);
         await Promise.all([fadeBajada, fadeSubida]); // que ningún fundido quede a medias
         setBadge('● DJ IA (SIGUIENTE CANCIÓN)');
-        await cambiarVolumenSpotify(volumenOriginal); // valor final exacto antes de que suene lo siguiente
+        const detenida = retenida || modoPausa || pausadaPorFallo; // la música estuvo en pausa durante la voz
+        if (!modoPausa && !pausadaPorFallo) await cambiarVolumenSpotify(volumenOriginal); // valor final exacto
 
-        if (vozReprodujo && retenida) {
-          // Comprobar si Spotify ya había cambiado sola de canción antes de saltar (evita saltarse una de más)
-          await actualizarEstado();
-          if (ultimaCancionId === idTransicion) await enviarComando('next');
+        if (detenida) {
+          if (vozReprodujo) {
+            // Comprobar si Spotify ya había cambiado sola de canción antes de saltar (evita saltarse una de más)
+            await actualizarEstado();
+            if (ultimaCancionId === idTransicion) await enviarComando('next');
+          }
           await enviarComando('play');
         } else if (vozReprodujo && saltarAlTerminar) {
           await enviarComando('next');
@@ -528,7 +560,10 @@
         document.getElementById('timeCurrent').textContent = formatTime(progreso);
         document.getElementById('progressFill').style.width = `${(progreso / duracionCancionMs) * 100}%`;
       }
-      btnPlayPause.textContent = isPlaying ? '⏸' : '▶';
+      if (btnPlayPause.dataset.estado !== String(isPlaying)) { // solo se redibuja el icono cuando cambia
+        btnPlayPause.dataset.estado = String(isPlaying);
+        btnPlayPause.innerHTML = isPlaying ? '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>' : '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+      }
 
       if (!djActivo || !isPlaying || transicionEnCurso || djOmitidoId === ultimaCancionId) return;
 
@@ -564,14 +599,14 @@
         if (!data || !data.item) { isPlaying = false; return; }
 
         isPlaying = data.is_playing;
-        shuffleActivo = !!data.shuffle_state;
-        btnShuffle.style.color = shuffleActivo ? 'var(--brat-neon)' : '';
 
         // Volumen real del usuario. Solo se lee si la consulta empezó y terminó SIN locución y pasados 8 s desde la
         // última; si no, podríamos guardar como "original" el volumen ya bajado y la música se quedaría baja.
         if (volFiableAlPedir && volumenFiable() && typeof data.device?.volume_percent === 'number') {
           volumenOriginal = data.device.volume_percent;
         }
+
+        if (data.device?.id !== dispositivoId) { dispositivoId = data.device?.id ?? null; soportaVolumen = true; } // al cambiar de dispositivo se vuelve a probar
 
         // Re-sincronizar el reloj local
         const muestraTs = (t0 + performance.now()) / 2 - (data.progress_ms || 0); // mitad del viaje de ida y vuelta
