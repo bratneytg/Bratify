@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Bratify — AI Radio Player</title>
   <style>
     :root {
@@ -60,17 +60,45 @@
     .dj-toggle-btn { background: var(--bg-elevated); border: 1px solid #3e3e3e; color: var(--text-secondary); padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: 700; cursor: pointer; }
     .dj-toggle-btn.dj-on { background: var(--brat-neon); color: #000; border-color: var(--brat-neon); }
     .btn-force-dj { background: transparent; border: 1px solid var(--text-secondary); color: var(--text-primary); padding: 6px 12px; border-radius: 16px; font-size: 12px; cursor: pointer; }
+    .overlay-login { display: none; position: fixed; inset: 0; z-index: 100; background: var(--bg-black); flex-direction: column; align-items: center; justify-content: center; gap: 20px; text-align: center; padding: 24px; color: var(--text-secondary); }
+    .btn-menu { display: none; position: absolute; top: 12px; left: 12px; z-index: 5; background: var(--bg-elevated); color: var(--text-primary); border: 1px solid #3e3e3e; border-radius: 8px; width: 40px; height: 40px; font-size: 20px; }
+    .content { overflow-y: auto; }
+
+    /* Móvil / Android */
+    @media (max-width: 768px) {
+      body { height: 100dvh; }
+      .main-container { flex-direction: column; padding: 4px; gap: 4px; position: relative; }
+      .btn-menu { display: block; }
+      .sidebar { display: none; width: 100%; max-height: 55dvh; }
+      .sidebar.abierto { display: flex; }
+      .content { padding: 56px 16px 16px; justify-content: flex-start; }
+      .album-art { width: min(60vw, 240px); height: min(60vw, 240px); margin-bottom: 16px; }
+      .track-title { font-size: 22px; }
+      .player-bar { height: auto; flex-direction: column; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
+      .now-playing-mini { display: none; }
+      .player-controls, .right-controls { width: 100%; }
+      .right-controls { justify-content: center; }
+      .progress-bar { height: 10px; }
+    }
   </style>
 </head>
 <body>
 
+  <!-- Pantalla de login: aparece solo si no hay sesión de Spotify. La sesión se renueva sola en el servidor. -->
+  <div id="overlayLogin" class="overlay-login">
+    <div class="logo">🎙️ Bratify <span>AI</span></div>
+    <p>Conecta tu cuenta de Spotify para empezar.</p>
+    <a href="/login" class="btn-login" style="padding:12px 28px;font-size:15px;">Conectar con Spotify</a>
+  </div>
+
   <div class="main-container">
+    <button id="btnMenu" class="btn-menu" aria-label="Menú">☰</button>
     <aside class="sidebar">
       <div class="logo">🎙️ Bratify <span>AI</span></div>
-      <a href="/login" class="btn-login">Conectar con Spotify</a>
       <div class="token-box">
-        <label for="tokenInput">Access Token de Spotify</label>
-        <input type="password" id="tokenInput" placeholder="Pega tu token aquí..." />
+        <label>Spotify</label>
+        <span id="estadoSesion" style="font-size:12px;color:var(--text-secondary);">Comprobando sesión...</span>
+        <a href="/logout" style="font-size:12px;color:var(--text-secondary);">Cerrar sesión</a>
       </div>
       <div class="token-box">
         <label for="inputAmbiente">Prompt para el DJ (opcional)</label>
@@ -187,7 +215,6 @@
     let precargaIntentadaPara = null; // evita reintentar en bucle si la precarga falla
     let tiempoGeneracionMs = 12000;  // lo que tardó la última locución en generarse (se mide; sirve para adelantar la precarga)
 
-    const tokenInput = document.getElementById('tokenInput');
     const btnToggleDj = document.getElementById('btnToggleDj');
     const btnPlayPause = document.getElementById('btnPlayPause');
     const btnShuffle = document.getElementById('btnShuffle');
@@ -195,13 +222,12 @@
     const djAudio = document.getElementById('djAudioPlayer');
     djAudio.volume = 1.0; // la voz del DJ siempre al 100%; solo se baja la música (volumen de Spotify)
 
-    const getToken = () => tokenInput.value.trim();
+    // El token real vive en el servidor (cookie httpOnly). Aquí solo sabemos si hay sesión.
+    let sesionActiva = false;
+    const getToken = () => (sesionActiva ? 'sesion' : '');
     const setBadge = (txt) => { djBadge.textContent = txt; };
     const badgeReposo = () => setBadge(djActivo ? '● DJ IA EN VIVO (ACTIVO)' : '● MODO REPRODUCTOR NORMAL');
 
-    // Token: se rellena solo tras /callback; también se puede pegar a mano
-    tokenInput.value = localStorage.getItem('bratify_token') || '';
-    tokenInput.addEventListener('change', () => localStorage.setItem('bratify_token', getToken()));
 
     // Los navegadores bloquean el audio automático hasta que el usuario hace clic. Con Web Audio basta con
     // crear/reanudar el contexto en un clic (botón DJ); después la voz suena cuando toque.
@@ -287,7 +313,7 @@
     });
 
     // ============ 1. PRECARGA (≈40 s antes del final) ============
-    // Pide el guion + la voz al servidor y DESCARGA el mp3 a memoria (blob).
+    // Pide el guion + la voz al servidor, que devuelve el mp3 en base64 para decodificarlo en memoria.
     // Así, cuando toca hablar, el audio arranca al instante, sin depender de la red.
     function liberarAudio() { bufferDj = null; }
 
@@ -314,7 +340,8 @@
         if (!data.success) throw new Error(data.error || 'El servidor no pudo crear la locución');
 
         // Descargamos el mp3 exacto de esta locución (URL única por bloque)
-        const blob = await (await fetch(data.audioUrl)).blob();
+        // El servidor envía el mp3 en base64 dentro de la propia respuesta
+        const bytes = Uint8Array.from(atob(data.audioBase64), c => c.charCodeAt(0));
 
         // Si la canción cambió mientras se generaba, esta locución ya no sirve
         if (idAlIniciar !== ultimaCancionId) return;
@@ -322,7 +349,7 @@
         if (ambiente !== ambienteActual()) { precargaIntentadaPara = null; return; }
 
         asegurarAudioCtx();
-        bufferDj = await audioCtx.decodeAudioData(await blob.arrayBuffer());
+        bufferDj = await audioCtx.decodeAudioData(bytes.buffer);
         duracionAudioDjMs = bufferDj.duration * 1000; // duración EXACTA de la voz
         tiempoGeneracionMs = performance.now() - t0;
         fallosPrecarga = 0;
@@ -531,7 +558,7 @@
         const t0 = performance.now();
         const volFiableAlPedir = volumenFiable();
         const res = await fetch('/api/estado', { headers: { 'Authorization': `Bearer ${token}` } });
-        if (res.status === 401) { setBadge('⚠️ TOKEN CADUCADO: vuelve a conectar con Spotify'); return; }
+        if (res.status === 401) { comprobarSesion(); return; } // el servidor intenta renovar; si no puede, aparece el login
         if (!res.ok) return;
         const data = await res.json();
         if (!data || !data.item) { isPlaying = false; return; }
@@ -614,19 +641,23 @@
       setInterval(tick, TICK_MS);
     }
 
-    // Comprobar estado al cargar la página
-window.addEventListener('DOMContentLoaded', async () => {
-  try {
-    const res = await fetch('/api/estado-sesion');
-    const data = await res.json();
-    if (data.conectado) {
-      console.log("✅ Sesión de Spotify activa en el servidor.");
-      // Aquí puedes ocultar el botón de conectar y mostrar los controles de la radio
+    // ============ 5. SESIÓN Y MENÚ ============
+    // Al abrir: si hay sesión, empieza solo; si no, aparece la pantalla de login.
+    // Si el servidor está arrancando (Render tarda ~50 s en "despertar"), se reintenta sin molestar.
+    async function comprobarSesion() {
+      try {
+        const data = await (await fetch('/api/estado-sesion')).json();
+        sesionActiva = !!data.conectado;
+        document.getElementById('overlayLogin').style.display = sesionActiva ? 'none' : 'flex';
+        document.getElementById('estadoSesion').textContent = sesionActiva ? 'Conectado ✓' : 'Sin conexión';
+        if (sesionActiva) actualizarEstado();
+      } catch (e) {
+        setTimeout(comprobarSesion, 3000);
+      }
     }
-  } catch (e) {
-    console.error("Error comprobando sesión", e);
-  }
-});
+    comprobarSesion();
+
+    document.getElementById('btnMenu').addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('abierto'));
   </script>
 </body>
 </html>
