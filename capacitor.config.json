@@ -1,0 +1,9 @@
+{
+  "appId": "com.bratify.radio",
+  "appName": "Bratify",
+  "webDir": "public",
+  "server": {
+    "url": "https://bratify-pyy0.onrender.com",
+    "cleartext": true
+  }
+}
