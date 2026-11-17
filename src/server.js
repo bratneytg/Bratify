@@ -28,7 +28,10 @@ const UN_ANO = 365 * 24 * 3600 * 1000;
 app.set('trust proxy', 1); // Render va detrás de un proxy HTTPS
 app.use(express.json());
 app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
-app.use(express.static(path.join(__dirname, '../public')));
+// El HTML se revalida siempre: sin esto el navegador/WebView puede seguir mostrando la versión anterior horas después de desplegar
+app.use(express.static(path.join(__dirname, '../public'), {
+  setHeaders: (res, ruta) => { if (ruta.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache'); },
+}));
 app.get('/healthz', (req, res) => res.send('ok')); // health check de Render
 
 // ---------------------------------------------------------------------------
