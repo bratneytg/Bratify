@@ -8,6 +8,8 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <meta name="theme-color" content="#000000" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="format-detection" content="telephone=no" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="Velvet Dial" />
@@ -158,6 +160,17 @@
     .lista-resultado ol span { color: var(--text-secondary); }
     .lista-resultado p { font-size: 12px; color: var(--text-secondary); }
     .btn-reconectar { text-align: center; }
+
+    /* ===== Ajustes para iPhone / iPad ===== */
+    html { -webkit-text-size-adjust: 100%; overscroll-behavior: none; }
+    body { height: 100vh; height: 100dvh; overscroll-behavior: none; -webkit-tap-highlight-color: transparent;
+           padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); } /* muesca en horizontal */
+    button, a, select, .vista-tab, .lang-btn { touch-action: manipulation; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; } /* sin zoom por doble toque ni menú al mantener pulsado */
+    .progress-bar { -webkit-user-select: none; user-select: none; }
+    html.ios { --safe-top: env(safe-area-inset-top, 0px); } /* el mínimo de 28 px es solo para la app de Android */
+    @supports (-webkit-touch-callout: none) {
+      input, select, textarea { font-size: 16px !important; } /* con menos de 16 px, Safari hace zoom al tocar el campo */
+    }
   </style>
 </head>
 <body>
@@ -470,6 +483,7 @@
     // ============ PLATAFORMA ============
     const UA = navigator.userAgent || '';
     const ES_IOS = /iPhone|iPad|iPod/i.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS se presenta como Mac
+    if (ES_IOS) document.documentElement.classList.add('ios');
     const ES_STANDALONE = window.navigator.standalone === true || window.matchMedia?.('(display-mode: standalone)').matches;
     const ES_MOVIL_WEB = /iPhone|iPad|iPod|Android/i.test(UA) || ES_IOS; // móvil usando la web (en PC no hace falta)
 
@@ -1191,10 +1205,39 @@
     // ============ 5. SESIÓN Y MENÚ ============
     // Al abrir: si hay sesión, empieza solo; si no, aparece la pantalla de login.
     // Si el servidor está arrancando (Render tarda ~50 s en "despertar"), se reintenta sin molestar.
+    // iPhone con la app instalada: el login de Spotify puede terminar en Safari, que no comparte cookies con la app.
+    // Por eso se manda un código secreto con el login y, al volver, la app reclama su sesión al servidor.
+    let tEmparejar = null;
+    async function intentarEmparejar() {
+      tClear(tEmparejar); tEmparejar = null;
+      const [id, ts] = (localStorage.getItem('vd_pair') || '').split('|');
+      if (!id) return;
+      if (Date.now() - Number(ts) > 10 * 60_000) { localStorage.removeItem('vd_pair'); return; }
+      try {
+        const r = await fetch('/api/emparejar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pair: id }), signal: limite(8000) });
+        if (r.ok) { localStorage.removeItem('vd_pair'); await comprobarSesion(); return; }
+      } catch (e) { /* sin red: se reintenta */ }
+      tEmparejar = tOut(intentarEmparejar, 2500);
+    }
+    if (ES_IOS && ES_STANDALONE) {
+      document.addEventListener('click', (ev) => {
+        const a = ev.target.closest?.('a[href^="/login"]');
+        if (!a) return;
+        ev.preventDefault();
+        const b = new Uint8Array(16); crypto.getRandomValues(b);
+        const id = Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+        localStorage.setItem('vd_pair', `${id}|${Date.now()}`);
+        window.location.href = a.getAttribute('href') + (a.getAttribute('href').includes('?') ? '&' : '?') + 'pair=' + id;
+      });
+      window.addEventListener('focus', intentarEmparejar);
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') intentarEmparejar(); });
+    }
+
     async function comprobarSesion() {
       try {
         const data = await (await fetch('/api/estado-sesion')).json();
         sesionActiva = !!data.conectado;
+        if (sesionActiva) localStorage.removeItem('vd_pair'); else intentarEmparejar();
         document.getElementById('overlayLogin').style.display = sesionActiva ? 'none' : 'flex';
         sesionClave = sesionActiva ? 'sesionOk' : 'sesionNo';
         document.getElementById('estadoSesion').textContent = t(sesionClave);

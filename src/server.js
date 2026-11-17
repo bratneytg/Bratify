@@ -109,20 +109,46 @@ async function requiereSesion(req, res, next) {
 // y salía "Login no válido o caducado" en el primer intento.
 const FIRMA_KEY = process.env.STATE_SECRET || process.env.SPOTIFY_CLIENT_SECRET || 'bratify';
 const firmar = (txt) => crypto.createHmac('sha256', FIRMA_KEY).update(txt).digest('hex').slice(0, 32);
-function crearState() {
-  const base = `${crypto.randomBytes(8).toString('hex')}.${Date.now()}`;
+const ID_PAREJA = /^[a-f0-9]{32}$/;
+// `pair` (opcional): código secreto que genera la app instalada en iPhone para recoger su sesión (ver "EMPAREJADO")
+function crearState(pair) {
+  const base = `${crypto.randomBytes(8).toString('hex')}.${Date.now()}.${pair && ID_PAREJA.test(pair) ? pair : '0'}`;
   return `${base}.${firmar(base)}`;
 }
-function stateValido(state) {
-  const [nonce, ts, firma] = String(state || '').split('.');
-  if (!nonce || !ts || !firma) return false;
-  const esperada = firmar(`${nonce}.${ts}`);
+// Devuelve { pair } si el state es auténtico y reciente; si no, null
+function leerState(state) {
+  const partes = String(state || '').split('.');
+  if (partes.length !== 4) return null;
+  const [nonce, ts, pair, firma] = partes;
+  const esperada = firmar(`${nonce}.${ts}.${pair}`);
   const igual = firma.length === esperada.length && crypto.timingSafeEqual(Buffer.from(firma), Buffer.from(esperada));
-  return igual && Date.now() - Number(ts) < 10 * 60 * 1000; // válido 10 minutos
+  if (!igual || !(Date.now() - Number(ts) < 10 * 60 * 1000)) return null; // válido 10 minutos
+  return { pair: pair === '0' ? null : pair };
 }
 
+// ---------------------------------------------------------------------------
+// EMPAREJADO (iPhone): una app instalada en la pantalla de inicio de iOS tiene sus cookies separadas de Safari, y el
+// login de Spotify puede acabar en Safari. La app genera un código secreto, lo manda con el login, y al terminar el
+// servidor guarda la sesión 5 minutos bajo ese código. La app lo reclama (una sola vez) y recibe su cookie.
+// ---------------------------------------------------------------------------
+const parejas = new Map(); // código -> { refresh, expira }
+function guardarPareja(pair, refresh) {
+  const ahora = Date.now();
+  for (const [k, v] of parejas) if (v.expira < ahora) parejas.delete(k);
+  if (parejas.size >= 500) parejas.delete(parejas.keys().next().value);
+  parejas.set(pair, { refresh, expira: ahora + 5 * 60_000 });
+}
+app.post('/api/emparejar', (req, res) => {
+  const pair = String(req.body?.pair ?? '');
+  const p = ID_PAREJA.test(pair) ? parejas.get(pair) : null;
+  if (!p || p.expira < Date.now()) return res.status(404).json({ ok: false });
+  parejas.delete(pair); // un solo uso
+  res.cookie(COOKIE_SESION, p.refresh, opcionesCookie(UN_ANO));
+  res.json({ ok: true });
+});
+
 app.get('/login', (req, res) => {
-  const state = crearState();
+  const state = crearState(String(req.query.pair || ''));
   const params = { response_type: 'code', client_id: process.env.SPOTIFY_CLIENT_ID, scope: SCOPE, redirect_uri: REDIRECT_URI, state };
   if (req.query.reconectar) params.show_dialog = 'true'; // fuerza a Spotify a pedir los permisos de nuevo (si no, vuelve sin preguntar)
   res.redirect('https://accounts.spotify.com/authorize?' + new URLSearchParams(params));
@@ -134,12 +160,14 @@ app.get('/callback', async (req, res) => {
     `<body style="font-family:sans-serif;text-align:center;padding-top:50px"><h2>${msg}</h2><a href="/login">Intentar de nuevo</a></body>`);
 
   if (error) return paginaError('Spotify canceló el inicio de sesión.');
-  if (!code || !stateValido(state)) return paginaError('Login no válido o caducado.');
+  const estado = code ? leerState(state) : null;
+  if (!estado) return paginaError('Login no válido o caducado.');
 
   try {
     const data = await pedirTokensSpotify({ grant_type: 'authorization_code', code, redirect_uri: REDIRECT_URI });
     cacheTokens.set(data.refresh_token, { accessToken: data.access_token, expira: Date.now() + data.expires_in * 1000 });
     if (data.scope) alcances.set(data.access_token, data.scope);
+    if (estado.pair) guardarPareja(estado.pair, data.refresh_token);
     console.log('🔑 Login completado. Permisos concedidos:', data.scope);
     res.cookie(COOKIE_SESION, data.refresh_token, opcionesCookie(UN_ANO));
     res.redirect('/'); // ya no hay que copiar ningún token
