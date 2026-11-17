@@ -48,9 +48,13 @@ export function elegirTipoSegmento(hayClima = true) {
  * @param {string} [opciones.tipo='cancion'] - 'cancion' | 'clima' | 'dato' | 'momento' | 'mixto'
  * @param {object|null} [opciones.clima] - datos de services/clima.js
  * @param {string} [opciones.ambiente] - petición libre del oyente (p. ej. "estoy en una cita romántica"); se suma a lo habitual
+ * @param {string} [opciones.idioma='en'] - 'en' | 'es': idioma en el que habla el locutor
+ * @param {string} [opciones.genero='female'] - 'male' | 'female': género del locutor (importa en español)
  * @returns {Promise<string>} El guion redactado para locutar
  */
-export async function generarGuionLocutor(cancionAnterior, cancionSiguiente, { tipo = 'cancion', clima = null, ambiente = '' } = {}) {
+export async function generarGuionLocutor(cancionAnterior, cancionSiguiente, { tipo = 'cancion', clima = null, ambiente = '', idioma = 'en', genero = 'female' } = {}) {
+  const lengua = idioma === 'es' ? 'Spanish' : 'English';
+  const locutor = genero === 'male' ? 'male' : 'female';
   const necesitaClima = TIPOS.find(t => t.tipo === tipo)?.usaClima;
   const usaClima = necesitaClima && clima;
   const tipoEfectivo = necesitaClima && !clima ? 'cancion' : tipo; // sin datos de clima, se cae al tipo 'cancion'
@@ -67,7 +71,8 @@ export async function generarGuionLocutor(cancionAnterior, cancionSiguiente, { t
     : '';
 
   const prompt = `
-    Act as a charismatic, sensual, deep and modern radio host.
+    Act as a charismatic, sensual, deep and modern ${locutor} radio host.
+    You are a ${locutor} host speaking ${lengua}${idioma === 'es' ? ', so use the grammatical forms that match a ' + locutor + ' speaker' : ''}.
     Your job is a quick, entertaining link between the song that is ending and the one coming up next.
 
     - Song that is ending: "${cancionAnterior}"
@@ -78,7 +83,8 @@ export async function generarGuionLocutor(cancionAnterior, cancionSiguiente, { t
     ${peticion}
 
     Rules:
-    - Short text in English (unless the listener's request asks for another language), ${ambiente ? 65 : 55} words maximum.
+    - Short text in ${lengua} (unless the listener's request asks for another language), ${ambiente ? 65 : 55} words maximum.
+    - Keep song titles and artist names exactly as they are (do not translate them). Any weather or time data above is given in English: say it naturally in ${lengua}.
     - It must flow naturally and always lead into the next song, so the listener hears its title and artist.
     - Sound like a real radio host: fresh, varied, never formulaic. Do not start every link the same way (avoid always opening with "Hey").
     - Plain spoken text only: no stage directions, sound effects, emojis, hashtags or markdown. Write numbers the way you would say them.

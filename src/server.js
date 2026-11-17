@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import * as gemini from './services/gemini.js'; // namespace: si falta elegirTipoSegmento no se cae el arranque
-import { generarAudioLocucion } from './services/elevenlabs.js';
+import { generarAudioLocucion, elegirVoz } from './services/elevenlabs.js';
 import { obtenerCancionActualConHistorial } from './services/spotify.js';
 import { obtenerClima } from './services/clima.js';
 
@@ -212,10 +212,11 @@ app.post('/api/crear-bloque', requiereSesion, async (req, res) => {
     // Variedad: canción, clima, dato curioso, momento del día o mezcla
     const clima = await obtenerClima(req.body.ubicacion); // {lat, lon} del dispositivo, si la compartió
     const tipo = gemini.elegirTipoSegmento?.(!!clima) ?? 'cancion';
-    const guion = await gemini.generarGuionLocutor(cancionAnterior, cancionSiguiente, { tipo, clima, ambiente });
+    const voz = elegirVoz(req.body.voz); // idioma + género + id de la voz de ElevenLabs
+    const guion = await gemini.generarGuionLocutor(cancionAnterior, cancionSiguiente, { tipo, clima, ambiente, idioma: voz.idioma, genero: voz.genero });
     console.log(`🎙️ Locución [${tipo}]${ambiente ? ` + ambiente "${ambiente}"` : ''}: ${guion}`);
 
-    const audio = await generarAudioLocucion(guion);
+    const audio = await generarAudioLocucion(guion, voz.id);
     res.json({ success: true, cancionDetectada: cancionAnterior, guion, tipo, audioBase64: Buffer.from(audio).toString('base64') });
   } catch (error) {
     console.error('❌ Error en /api/crear-bloque:', error.message);

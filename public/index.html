@@ -160,9 +160,14 @@
         <span style="font-size: 11px; color: var(--text-secondary);" data-i18n="promptHelp"></span>
       </div>
       <div class="token-box">
-        <label data-i18n="diagTitulo"></label>
-        <button id="btnDiag" class="lang-btn" data-i18n="diagBoton"></button>
-        <textarea id="diagTexto" readonly rows="10" style="display:none;background:#2a2a2a;border:1px solid #3e3e3e;color:#cfcfcf;padding:6px;border-radius:4px;font-size:10px;width:100%;"></textarea>
+        <label for="selectVoz" data-i18n="vozTitulo"></label>
+        <select id="selectVoz" style="background:#2a2a2a;border:1px solid #3e3e3e;color:white;padding:8px;border-radius:4px;font-size:12px;width:100%;">
+          <option value="es-m">Español · Hombre</option>
+          <option value="es-f">Español · Mujer</option>
+          <option value="en-m">English · Male</option>
+          <option value="en-f">English · Female</option>
+        </select>
+        <span style="font-size: 11px; color: var(--text-secondary);" data-i18n="vozAyuda"></span>
       </div>
       <div class="token-box">
         <label data-i18n="idioma"></label>
@@ -229,7 +234,7 @@
         bAlAireRet: '🎚️ DJ AL AIRE (LLEGÓ JUSTO: SE RETIENE LA SIGUIENTE)', bAlAire: '🎚️ DJ AL AIRE (MÚSICA BAJA)...',
         bErrLocucion: '⚠️ ERROR EN LA LOCUCIÓN', bSiguiente: '● DJ IA (SIGUIENTE CANCIÓN)', bSinTiempo: '● DJ: SIN TIEMPO PARA HABLAR EN ESTA CANCIÓN',
         avisoIosInstalar: 'Para instalarla en tu iPhone: pulsa Compartir y luego "Añadir a pantalla de inicio". Ojo: en iPhone el DJ solo habla con la app abierta y la pantalla encendida.',
-        diagTitulo: 'Diagnóstico', diagBoton: 'Mostrar y copiar registro',
+        vozTitulo: 'Voz del DJ', vozAyuda: 'Cambia el idioma y la voz de las locuciones. Se aplica desde la siguiente.',
         avisoIosAbierta: 'En iPhone el DJ solo habla con la app abierta y la pantalla encendida. No bloquees el teléfono mientras escuchas.',
       },
       en: {
@@ -246,7 +251,7 @@
         bAlAireRet: '🎚️ DJ ON AIR (TIGHT TIMING: NEXT SONG HELD)', bAlAire: '🎚️ DJ ON AIR (MUSIC DUCKED)...',
         bErrLocucion: '⚠️ ERROR PLAYING THE LINK', bSiguiente: '● AI DJ (NEXT SONG)', bSinTiempo: '● DJ: NO TIME TO SPEAK ON THIS SONG',
         avisoIosInstalar: 'To install it on your iPhone: tap Share, then "Add to Home Screen". Note: on iPhone the DJ only speaks while the app is open and the screen is on.',
-        diagTitulo: 'Diagnostics', diagBoton: 'Show and copy log',
+        vozTitulo: 'DJ voice', vozAyuda: 'Changes the language and voice of the links. Applies from the next one.',
         avisoIosAbierta: 'On iPhone the DJ only speaks while the app is open and the screen is on. Do not lock the phone while listening.',
       },
     };
@@ -286,14 +291,6 @@
       document.getElementById('avisoIosTexto').textContent = t(clave);
       caja.style.display = 'block';
     }
-    document.getElementById('btnDiag').addEventListener('click', () => {
-      const caja = document.getElementById('diagTexto');
-      caja.value = diag.join('\n');
-      caja.style.display = 'block';
-      caja.scrollTop = caja.scrollHeight;
-      caja.focus(); caja.select();
-      try { navigator.clipboard?.writeText(caja.value).catch(() => document.execCommand('copy')); } catch (e) { try { document.execCommand('copy'); } catch (e2) { /* se puede copiar a mano */ } }
-    });
     document.getElementById('avisoIosCerrar').addEventListener('click', () => {
       localStorage.setItem('vd_aviso_' + (ES_STANDALONE ? 'avisoIosAbierta' : 'avisoIosInstalar'), '1');
       document.getElementById('avisoIos').style.display = 'none';
@@ -359,13 +356,12 @@
     const limite = (ms) => { const c = new AbortController(); tOut(() => c.abort(), ms); return c.signal; };
 
     // ============ DIAGNÓSTICO ============
-    // Registro de eventos (se guarda en el móvil). Menú ▸ "Diagnóstico" lo muestra y lo copia para poder revisarlo.
+    // Registro de eventos solo en memoria (sin interfaz): sirve para depurar desde la consola del navegador (window.vdLog).
     const diag = [];
-    try { const previo = JSON.parse(localStorage.getItem('vd_diag') || '[]'); if (previo.length) diag.push(...previo.slice(-120), '──── nueva sesión ────'); } catch (e) { /* sin registro previo */ }
+    window.vdLog = diag;
     function dlog(msg) {
       diag.push(new Date().toTimeString().slice(0, 8) + ' ' + msg);
       while (diag.length > 260) diag.shift();
-      try { localStorage.setItem('vd_diag', JSON.stringify(diag.slice(-150))); } catch (e) { /* lleno: se ignora */ }
     }
 
     // Un Web Lock abierto evita que Chrome "congele" la página en segundo plano (se mantiene mientras la página viva)
@@ -401,6 +397,20 @@
     inputAmbiente.addEventListener('change', () => {
       localStorage.setItem('bratify_ambiente', inputAmbiente.value);
       // Si ya había una locución lista (sin emitir), se descarta para regenerarla con el prompt nuevo
+      if (locucionPreparada && !transicionEnCurso) {
+        locucionPreparada = false; liberarAudio(); precargaIntentadaPara = null; fallosPrecarga = 0; badgeReposo();
+      }
+    });
+
+    // Voz del DJ: idioma (es/en) + género (m/f). Se guarda en el navegador y viaja al servidor en cada locución.
+    const VOCES_VALIDAS = ['es-m', 'es-f', 'en-m', 'en-f'];
+    const selectVoz = document.getElementById('selectVoz');
+    const vozGuardada = localStorage.getItem('vd_voz');
+    selectVoz.value = VOCES_VALIDAS.includes(vozGuardada) ? vozGuardada : 'en-f'; // por defecto, la voz de siempre
+    const vozActual = () => selectVoz.value;
+    selectVoz.addEventListener('change', () => {
+      localStorage.setItem('vd_voz', selectVoz.value);
+      // Si ya había una locución lista (sin emitir), se descarta para regenerarla con la voz nueva
       if (locucionPreparada && !transicionEnCurso) {
         locucionPreparada = false; liberarAudio(); precargaIntentadaPara = null; fallosPrecarga = 0; badgeReposo();
       }
@@ -597,6 +607,7 @@
       precargaIntentadaPara = idAlIniciar;
       const t0 = performance.now();
       const ambiente = ambienteActual(); // el prompt con el que se genera esta locución
+      const voz = vozActual();           // y la voz (idioma + género)
       console.info(`[DJ] precarga iniciada (restante=${Math.round(duracionCancionMs - progresoActualMs())}ms, intento ${fallosPrecarga + 1})`);
       dlog(`precarga iniciada (restante ${Math.round((duracionCancionMs - progresoActualMs()) / 1000)}s, intento ${fallosPrecarga + 1})`);
       precargandoEnCurso = true;
@@ -606,7 +617,7 @@
         const res = await fetch('/api/crear-bloque', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ spotifyToken, ultimaCancionConocida: ultimaCancionNombre, ambiente, ubicacion }),
+          body: JSON.stringify({ spotifyToken, ultimaCancionConocida: ultimaCancionNombre, ambiente, ubicacion, voz }),
           signal: limite(60000) // si se cuelga, falla y se reintenta (antes se quedaba "precargando" para siempre)
         });
         const data = await res.json();
@@ -619,7 +630,7 @@
         // Si la canción cambió mientras se generaba, esta locución ya no sirve
         if (idAlIniciar !== ultimaCancionId) return;
         // Si el usuario cambió el prompt mientras se generaba, esta locución ya no vale: se vuelve a generar
-        if (ambiente !== ambienteActual()) { precargaIntentadaPara = null; return; }
+        if (ambiente !== ambienteActual() || voz !== vozActual()) { precargaIntentadaPara = null; return; }
 
         asegurarAudioCtx();
         dlog(`audio recibido, decodificando (audioCtx=${audioCtx.state})`);
