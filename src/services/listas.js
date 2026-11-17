@@ -40,6 +40,7 @@ async function spotify(token, metodo, ruta, { cuerpo, reintentos = 1 } = {}) {
   if (!r.ok) {
     const e = new Error(data?.error?.message || texto.slice(0, 200) || `HTTP ${r.status}`);
     e.status = r.status;
+    e.paso = `${metodo} ${ruta.split('?')[0]}`; // qué llamada falló (sin datos personales)
     throw e;
   }
   return data;
@@ -47,7 +48,7 @@ async function spotify(token, metodo, ruta, { cuerpo, reintentos = 1 } = {}) {
 
 const esFaltaDePermiso = (e) => e?.status === 403 && /scope/i.test(e.message || '');
 const traducirError = (e) => esFaltaDePermiso(e)
-  ? new ErrorListas('FALTA_PERMISO', 'Spotify necesita un permiso nuevo para crear listas', 403, `Spotify respondió: ${e.message}`)
+  ? new ErrorListas('FALTA_PERMISO', 'Spotify necesita un permiso nuevo para crear listas', 403, `${e.paso || 'Spotify'} → ${e.message}`)
   : e;
 
 // ---------------------------------------------------------------------------
@@ -93,7 +94,7 @@ export function elegirMejor(items, titulo, artista) {
 export async function buscarCancion(token, { titulo, artista }) {
   const consultas = [`track:${titulo} artist:${artista}`, `${titulo} ${artista}`];
   for (const q of consultas) {
-    const data = await spotify(token, 'GET', `/search?type=track&limit=10&market=from_token&q=${encodeURIComponent(q)}`);
+    const data = await spotify(token, 'GET', `/search?type=track&limit=10&q=${encodeURIComponent(q)}`);
     const mejor = elegirMejor(data?.tracks?.items, titulo, artista);
     if (mejor) return mejor;
   }
