@@ -216,6 +216,7 @@ export async function crearLista({ token, peticion, cantidad, modo, idioma }, { 
     return {
       modo, nombre, canciones, noEncontradas,
       url: playlist.external_urls?.spotify || `https://open.spotify.com/playlist/${playlist.id}`,
+      uri: playlist.uri || `spotify:playlist:${playlist.id}`, // para abrirla directamente en la app de Spotify
       reproduciendo: reproduccion.ok, motivo: reproduccion.ok ? null : reproduccion.motivo,
     };
   } catch (e) { throw traducirError(e); }

@@ -541,6 +541,7 @@
       const enlace = document.getElementById('listaEnlace');
       enlace.hidden = !r.url;
       if (r.url && /^https:\/\/open\.spotify\.com\//.test(r.url)) enlace.href = r.url; else enlace.hidden = true;
+      enlace.dataset.uri = /^spotify:playlist:[A-Za-z0-9]+$/.test(r.uri || '') ? r.uri : '';
       const ol = document.getElementById('listaCanciones');
       ol.replaceChildren(...r.canciones.map(c => {
         const li = document.createElement('li');
@@ -552,6 +553,26 @@
       document.getElementById('listaNoEncontradas').textContent = r.noEncontradas?.length ? t('listasNoEncontradas', { lista: r.noEncontradas.join('; ') }) : '';
       document.getElementById('listaResultado').hidden = false;
     }
+
+    // "Abrir en Spotify": intenta abrir la app (Android y Windows entienden spotify:...). Si la app no se abre
+    // (no está instalada o el navegador no sale de la página), tras 1,5 s abre la versión web como alternativa.
+    document.getElementById('listaEnlace').addEventListener('click', (ev) => {
+      const enlace = ev.currentTarget, uri = enlace.dataset.uri;
+      if (!uri) return; // sin URI: se sigue el enlace web normal
+      ev.preventDefault();
+      let salio = false;
+      const marcar = () => { salio = true; };
+      document.addEventListener('visibilitychange', marcar, { once: true });
+      window.addEventListener('blur', marcar, { once: true });
+      window.addEventListener('pagehide', marcar, { once: true });
+      window.location.href = uri;
+      setTimeout(() => {
+        document.removeEventListener('visibilitychange', marcar);
+        window.removeEventListener('blur', marcar);
+        window.removeEventListener('pagehide', marcar);
+        if (!salio && document.visibilityState === 'visible') window.open(enlace.href, '_blank', 'noopener');
+      }, 1500);
+    });
 
     async function crearListaIA() {
       const prompt = inputListaPrompt.value.trim();
