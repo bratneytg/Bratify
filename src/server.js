@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import * as gemini from './services/gemini.js'; // namespace: si falta elegirTipoSegmento no se cae el arranque
 import { generarAudioLocucion, elegirVoz } from './services/elevenlabs.js';
 import { obtenerCancionActualConHistorial } from './services/spotify.js';
+import { crearLista, ErrorListas } from './services/listas.js';
 import { obtenerClima } from './services/clima.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,7 +18,8 @@ const PORT = process.env.PORT || 3000;
 // y SPOTIFY_REDIRECT_URI = https://TU-APP.onrender.com/callback (idéntica a la registrada en el dashboard de Spotify).
 // ---------------------------------------------------------------------------
 const REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI || `http://127.0.0.1:${PORT}/callback`;
-const SCOPE = 'user-read-playback-state user-read-currently-playing user-modify-playback-state';
+// playlist-modify-*: crear listas de reproducción con IA. Quien ya había iniciado sesión sin ellos debe reconectar una vez.
+const SCOPE = 'user-read-playback-state user-read-currently-playing user-modify-playback-state playlist-modify-private playlist-modify-public';
 const EN_RENDER = !!process.env.RENDER || process.env.NODE_ENV === 'production';
 const COOKIE_SESION = 'bratify_rt';   // refresh token (httpOnly: el JavaScript del navegador no puede leerlo)
 const ACCIONES_PERMITIDAS = ['play', 'pause', 'next', 'previous', 'shuffle', 'volume', 'seek'];
@@ -221,6 +223,37 @@ app.post('/api/crear-bloque', requiereSesion, async (req, res) => {
   } catch (error) {
     console.error('❌ Error en /api/crear-bloque:', error.message);
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// LISTAS CON IA: la petición del oyente -> canciones (Gemini) -> lista o cola en su Spotify
+// ---------------------------------------------------------------------------
+const listasPorSesion = new Map(); // Gemini cuesta dinero: máx. 5 listas cada 10 minutos por sesión
+function superaLimiteListas(clave) {
+  const ahora = Date.now();
+  const recientes = (listasPorSesion.get(clave) || []).filter(t => ahora - t < 10 * 60_000);
+  recientes.push(ahora);
+  listasPorSesion.set(clave, recientes);
+  return recientes.length > 5;
+}
+
+app.post('/api/listas/crear', requiereSesion, async (req, res) => {
+  if (superaLimiteListas(leerCookie(req, COOKIE_SESION))) return res.status(429).json({ success: false, codigo: 'LIMITE', error: 'Demasiadas listas seguidas, espera unos minutos' });
+
+  const peticion = String(req.body?.prompt ?? '').trim().slice(0, 300);
+  if (peticion.length < 3) return res.status(400).json({ success: false, error: 'Escribe qué tipo de música quieres' });
+  const cantidad = [10, 20, 30, 40].includes(Number(req.body?.cantidad)) ? Number(req.body.cantidad) : 20;
+  const modo = req.body?.modo === 'cola' ? 'cola' : 'lista';
+  const idioma = req.body?.idioma === 'en' ? 'en' : 'es';
+
+  try {
+    const r = await crearLista({ token: req.spotifyToken, peticion, cantidad, modo, idioma }, { generar: gemini.generarListaCanciones });
+    res.json({ success: true, ...r });
+  } catch (e) {
+    if (e instanceof ErrorListas) return res.status(e.status).json({ success: false, codigo: e.codigo, error: e.message });
+    console.error('❌ Error en /api/listas/crear:', e.message);
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 

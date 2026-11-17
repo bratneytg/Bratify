@@ -131,6 +131,33 @@
     .lang-btn:hover { color: #fff; border-color: #6a6a6a; }
     .lang-btn.activo { background: var(--brat-neon); color: #000; border-color: var(--brat-neon); }
     .overlay-login .lang-sel { width: 140px; }
+
+    /* ===== Vistas: Locución / Listas ===== */
+    .content { justify-content: flex-start; }
+    .vista-tabs { display: flex; gap: 4px; background: rgba(0,0,0,.4); padding: 4px; border-radius: 24px; margin-bottom: 18px; flex-shrink: 0; }
+    .vista-tab { background: transparent; border: 0; color: var(--text-secondary); padding: 8px 20px; border-radius: 20px; font-size: 13px; font-weight: 700; cursor: pointer; transition: background .2s, color .2s; }
+    .vista-tab:hover { color: #fff; }
+    .vista-tab.activo { background: var(--brat-neon); color: #000; }
+    .vista { width: 100%; display: flex; flex-direction: column; align-items: center; margin: auto 0; }
+    .vista[hidden] { display: none; }
+    .listas-card { width: 100%; max-width: 560px; text-align: left; display: flex; flex-direction: column; gap: 12px; }
+    .listas-card h2 { font-size: 20px; }
+    .listas-card label { font-size: 12px; color: var(--text-secondary); font-weight: 600; display: block; margin-bottom: 4px; }
+    .listas-card textarea, .listas-card select { background: #2a2a2a; border: 1px solid #3e3e3e; color: #fff; padding: 10px; border-radius: 6px; font-size: 13px; width: 100%; }
+    .listas-card textarea { resize: vertical; }
+    .listas-fila { display: flex; gap: 10px; }
+    .listas-fila > div { flex: 1; min-width: 0; }
+    .listas-card button.btn-login { border: 0; cursor: pointer; font-size: 14px; padding: 12px; }
+    .listas-card button.btn-login:disabled { opacity: .55; cursor: wait; }
+    .lista-estado { font-size: 13px; color: var(--text-secondary); line-height: 1.4; min-height: 18px; }
+    .lista-estado.error { color: #ff7b7b; }
+    .lista-resultado { background: rgba(0,0,0,.4); border: 1px solid rgba(138,206,0,.3); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+    .lista-resultado h3 { font-size: 16px; }
+    .lista-resultado a { color: var(--brat-neon); font-size: 13px; font-weight: 700; text-decoration: none; }
+    .lista-resultado ol { padding-left: 22px; font-size: 13px; color: #e0e0e0; display: flex; flex-direction: column; gap: 3px; max-height: 260px; overflow-y: auto; }
+    .lista-resultado ol span { color: var(--text-secondary); }
+    .lista-resultado p { font-size: 12px; color: var(--text-secondary); }
+    .btn-reconectar { text-align: center; }
   </style>
 </head>
 <body>
@@ -176,14 +203,55 @@
     </aside>
 
     <main class="content">
-      <img id="mainCover" class="album-art" src="/logo.png" alt="" />
-      <h1 id="mainTitle" class="track-title"></h1>
-      <p id="mainArtist" class="track-artist"></p>
+      <nav class="vista-tabs" role="tablist">
+        <button id="tabDj" class="vista-tab activo" role="tab" aria-selected="true" data-i18n="tabLocucion"></button>
+        <button id="tabListas" class="vista-tab" role="tab" aria-selected="false" data-i18n="tabListas"></button>
+      </nav>
 
-      <div class="dj-status-card">
-        <span class="dj-badge" id="djBadge"></span>
-        <p class="dj-script" id="djScript"></p>
-      </div>
+      <!-- Vista 1: la radio con locutor (lo de siempre) -->
+      <section id="vistaDj" class="vista">
+        <img id="mainCover" class="album-art" src="/logo.png" alt="" />
+        <h1 id="mainTitle" class="track-title"></h1>
+        <p id="mainArtist" class="track-artist"></p>
+
+        <div class="dj-status-card">
+          <span class="dj-badge" id="djBadge"></span>
+          <p class="dj-script" id="djScript"></p>
+        </div>
+      </section>
+
+      <!-- Vista 2: listas de reproducción o cola creadas con IA. El DJ sigue funcionando mientras estás aquí. -->
+      <section id="vistaListas" class="vista" hidden>
+        <div class="listas-card">
+          <h2 data-i18n="listasTitulo"></h2>
+          <div>
+            <label for="inputListaPrompt" data-i18n="listasPromptLabel"></label>
+            <textarea id="inputListaPrompt" maxlength="300" rows="3" data-i18n-placeholder="listasPlaceholder"></textarea>
+          </div>
+          <div class="listas-fila">
+            <div>
+              <label for="selectListaCantidad" data-i18n="listasCantidad"></label>
+              <select id="selectListaCantidad"><option value="10">10</option><option value="20" selected>20</option><option value="30">30</option><option value="40">40</option></select>
+            </div>
+            <div>
+              <label for="selectListaModo" data-i18n="listasModo"></label>
+              <select id="selectListaModo">
+                <option value="lista" data-i18n="listasModoLista"></option>
+                <option value="cola" data-i18n="listasModoCola"></option>
+              </select>
+            </div>
+          </div>
+          <button id="btnCrearLista" class="btn-login" data-i18n="listasCrear"></button>
+          <p id="listaEstado" class="lista-estado" aria-live="polite"></p>
+          <a id="btnReconectar" href="/login" class="btn-login btn-reconectar" hidden data-i18n="listasReconectar"></a>
+          <div id="listaResultado" class="lista-resultado" hidden>
+            <h3 id="listaNombre"></h3>
+            <a id="listaEnlace" href="#" target="_blank" rel="noopener" data-i18n="listasAbrir"></a>
+            <ol id="listaCanciones"></ol>
+            <p id="listaNoEncontradas"></p>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -234,6 +302,22 @@
         bAlAireRet: '🎚️ DJ AL AIRE (LLEGÓ JUSTO: SE RETIENE LA SIGUIENTE)', bAlAire: '🎚️ DJ AL AIRE (MÚSICA BAJA)...',
         bErrLocucion: '⚠️ ERROR EN LA LOCUCIÓN', bSiguiente: '● DJ IA (SIGUIENTE CANCIÓN)', bSinTiempo: '● DJ: SIN TIEMPO PARA HABLAR EN ESTA CANCIÓN',
         avisoIosInstalar: 'Para instalarla en tu iPhone: pulsa Compartir y luego "Añadir a pantalla de inicio". Ojo: en iPhone el DJ solo habla con la app abierta y la pantalla encendida.',
+        tabLocucion: 'Locución', tabListas: 'Listas',
+        listasTitulo: 'Crear una lista con IA', listasPromptLabel: 'Describe qué quieres escuchar',
+        listasPlaceholder: 'Ej.: es por la mañana y quiero empezar el día con música energizante',
+        listasCantidad: 'Canciones', listasModo: 'Qué hacer', listasModoLista: 'Crear lista y reproducirla', listasModoCola: 'Añadir a la cola',
+        listasCrear: 'Crear', listasAbrir: 'Abrir en Spotify', listasReconectar: 'Reconectar Spotify',
+        listasFaltaPrompt: 'Escribe primero qué tipo de música quieres.',
+        listasCreando: 'Pensando canciones y buscándolas en Spotify… puede tardar unos 20 segundos.',
+        listasOkLista: 'Lista "{nombre}" creada con {n} canciones.', listasOkCola: '{n} canciones añadidas a la cola.',
+        listasSinDispositivoLista: 'La lista está creada, pero no hay ningún dispositivo de Spotify activo. Abre Spotify, pon cualquier canción y reproduce la lista desde el enlace.',
+        listasSinDispositivoCola: 'No se pudieron añadir a la cola: no hay ningún dispositivo de Spotify activo. Abre Spotify, pon una canción y vuelve a intentarlo.',
+        listasColaParcial: 'Solo se añadieron {n} canciones a la cola.',
+        listasSinPremium: 'Spotify solo deja controlar la reproducción con Premium.',
+        listasNoEncontradas: 'No encontradas en Spotify: {lista}',
+        listasFaltaPermiso: 'Para crear listas, Spotify necesita un permiso nuevo. Pulsa "Reconectar Spotify" y acepta.',
+        listasLimite: 'Demasiadas listas seguidas. Espera unos minutos.', listasSesion: 'Tu sesión de Spotify caducó. Vuelve a conectarte.',
+        listasError: 'No se pudo crear la lista: {error}',
         vozTitulo: 'Voz del DJ', vozAyuda: 'Cambia el idioma y la voz de las locuciones. Se aplica desde la siguiente.',
         avisoIosAbierta: 'En iPhone el DJ solo habla con la app abierta y la pantalla encendida. No bloquees el teléfono mientras escuchas.',
       },
@@ -251,6 +335,22 @@
         bAlAireRet: '🎚️ DJ ON AIR (TIGHT TIMING: NEXT SONG HELD)', bAlAire: '🎚️ DJ ON AIR (MUSIC DUCKED)...',
         bErrLocucion: '⚠️ ERROR PLAYING THE LINK', bSiguiente: '● AI DJ (NEXT SONG)', bSinTiempo: '● DJ: NO TIME TO SPEAK ON THIS SONG',
         avisoIosInstalar: 'To install it on your iPhone: tap Share, then "Add to Home Screen". Note: on iPhone the DJ only speaks while the app is open and the screen is on.',
+        tabLocucion: 'DJ radio', tabListas: 'Playlists',
+        listasTitulo: 'Create an AI playlist', listasPromptLabel: 'Describe what you want to hear',
+        listasPlaceholder: 'E.g. it is morning and I want to start my day with energizing music',
+        listasCantidad: 'Songs', listasModo: 'What to do', listasModoLista: 'Create playlist and play it', listasModoCola: 'Add to queue',
+        listasCrear: 'Create', listasAbrir: 'Open in Spotify', listasReconectar: 'Reconnect Spotify',
+        listasFaltaPrompt: 'First write what kind of music you want.',
+        listasCreando: 'Thinking of songs and finding them on Spotify… this can take about 20 seconds.',
+        listasOkLista: 'Playlist "{nombre}" created with {n} songs.', listasOkCola: '{n} songs added to the queue.',
+        listasSinDispositivoLista: 'The playlist is created, but no Spotify device is active. Open Spotify, play any song, then play the playlist from the link.',
+        listasSinDispositivoCola: 'Could not add them to the queue: no Spotify device is active. Open Spotify, play a song and try again.',
+        listasColaParcial: 'Only {n} songs were added to the queue.',
+        listasSinPremium: 'Spotify only allows playback control with Premium.',
+        listasNoEncontradas: 'Not found on Spotify: {lista}',
+        listasFaltaPermiso: 'To create playlists, Spotify needs a new permission. Tap "Reconnect Spotify" and accept.',
+        listasLimite: 'Too many playlists in a row. Wait a few minutes.', listasSesion: 'Your Spotify session expired. Please connect again.',
+        listasError: 'Could not create the playlist: {error}',
         vozTitulo: 'DJ voice', vozAyuda: 'Changes the language and voice of the links. Applies from the next one.',
         avisoIosAbierta: 'On iPhone the DJ only speaks while the app is open and the screen is on. Do not lock the phone while listening.',
       },
@@ -415,6 +515,89 @@
         locucionPreparada = false; liberarAudio(); precargaIntentadaPara = null; fallosPrecarga = 0; badgeReposo();
       }
     });
+
+    // ============ VISTAS: LOCUCIÓN / LISTAS ============
+    // Es la misma página: al cambiar de vista solo se oculta una y se muestra la otra, así que el DJ, la música y
+    // la precarga de locuciones siguen funcionando mientras estás en "Listas".
+    const tabDj = document.getElementById('tabDj'), tabListas = document.getElementById('tabListas');
+    function mostrarVista(nombre) {
+      const enListas = nombre === 'listas';
+      document.getElementById('vistaDj').hidden = enListas;
+      document.getElementById('vistaListas').hidden = !enListas;
+      tabDj.classList.toggle('activo', !enListas); tabDj.setAttribute('aria-selected', String(!enListas));
+      tabListas.classList.toggle('activo', enListas); tabListas.setAttribute('aria-selected', String(enListas));
+    }
+    tabDj.addEventListener('click', () => mostrarVista('dj'));
+    tabListas.addEventListener('click', () => mostrarVista('listas'));
+
+    // ---- Crear lista / cola con IA ----
+    const inputListaPrompt = document.getElementById('inputListaPrompt');
+    const btnCrearLista = document.getElementById('btnCrearLista');
+    const listaEstado = document.getElementById('listaEstado');
+    function estadoLista(texto, esError = false) { listaEstado.textContent = texto; listaEstado.classList.toggle('error', esError); }
+
+    function pintarResultadoLista(r) {
+      document.getElementById('listaNombre').textContent = r.modo === 'cola' ? t('listasModoCola') : r.nombre;
+      const enlace = document.getElementById('listaEnlace');
+      enlace.hidden = !r.url;
+      if (r.url && /^https:\/\/open\.spotify\.com\//.test(r.url)) enlace.href = r.url; else enlace.hidden = true;
+      const ol = document.getElementById('listaCanciones');
+      ol.replaceChildren(...r.canciones.map(c => {
+        const li = document.createElement('li');
+        li.append(c.titulo + ' ');
+        const a = document.createElement('span'); a.textContent = '— ' + c.artista;
+        li.append(a);
+        return li;
+      }));
+      document.getElementById('listaNoEncontradas').textContent = r.noEncontradas?.length ? t('listasNoEncontradas', { lista: r.noEncontradas.join('; ') }) : '';
+      document.getElementById('listaResultado').hidden = false;
+    }
+
+    async function crearListaIA() {
+      const prompt = inputListaPrompt.value.trim();
+      if (prompt.length < 3) { estadoLista(t('listasFaltaPrompt'), true); return; }
+      btnCrearLista.disabled = true;
+      document.getElementById('btnReconectar').hidden = true;
+      document.getElementById('listaResultado').hidden = true;
+      estadoLista(t('listasCreando'));
+      try {
+        const res = await fetch('/api/listas/crear', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt, idioma,
+            cantidad: Number(document.getElementById('selectListaCantidad').value),
+            modo: document.getElementById('selectListaModo').value,
+          }),
+          signal: limite(120000),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 401) { estadoLista(t('listasSesion'), true); comprobarSesion(); return; }
+        if (data.codigo === 'FALTA_PERMISO') { estadoLista(t('listasFaltaPermiso'), true); document.getElementById('btnReconectar').hidden = false; return; }
+        if (res.status === 429) { estadoLista(t('listasLimite'), true); return; }
+        if (!data.success) { estadoLista(t('listasError', { error: data.error || res.status }), true); return; }
+
+        pintarResultadoLista(data);
+        if (data.modo === 'cola') {
+          const parcial = data.encoladas < data.canciones.length;
+          if (data.encoladas === 0 && data.motivo === 'sin_dispositivo') estadoLista(t('listasSinDispositivoCola'), true);
+          else if (data.encoladas === 0 && data.motivo === 'sin_premium') estadoLista(t('listasSinPremium'), true);
+          else estadoLista(t('listasOkCola', { n: data.encoladas }) + (parcial ? ' ' + t('listasColaParcial', { n: data.encoladas }) : ''), parcial);
+        } else {
+          let msg = t('listasOkLista', { nombre: data.nombre, n: data.canciones.length });
+          if (!data.reproduciendo) msg += ' ' + t(data.motivo === 'sin_premium' ? 'listasSinPremium' : 'listasSinDispositivoLista');
+          estadoLista(msg, !data.reproduciendo);
+          if (data.reproduciendo) tOut(actualizarEstado, 1500); // refresca la canción que suena
+        }
+      } catch (e) {
+        estadoLista(t('listasError', { error: e.name === 'AbortError' ? 'timeout' : e.message }), true);
+      } finally {
+        btnCrearLista.disabled = false;
+      }
+    }
+    btnCrearLista.addEventListener('click', crearListaIA);
+    inputListaPrompt.value = localStorage.getItem('vd_lista_prompt') ?? '';
+    inputListaPrompt.addEventListener('change', () => localStorage.setItem('vd_lista_prompt', inputListaPrompt.value));
 
     // ============ ESTADO ============
     let djActivo = false;

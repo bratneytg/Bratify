@@ -106,3 +106,54 @@ export async function generarGuionLocutor(cancionAnterior, cancionSiguiente, { t
     throw error;
   }
 }
+
+/**
+ * Propone una lista de canciones reales para una petición del oyente (p. ej. "es por la mañana y quiero música energizante").
+ * @param {string} peticion
+ * @param {number} cantidad - cuántas canciones quiere el oyente
+ * @param {object} [opciones]
+ * @param {string} [opciones.idioma='es'] - idioma del nombre y la descripción de la lista ('es' | 'en')
+ * @returns {Promise<{nombre: string, descripcion: string, canciones: {titulo: string, artista: string}[]}>}
+ *          Se piden algunas canciones de más: no todas existen o se encuentran en Spotify.
+ */
+export async function generarListaCanciones(peticion, cantidad, { idioma = 'es' } = {}) {
+  const pedir = Math.min(cantidad + Math.max(4, Math.ceil(cantidad * 0.3)), 55);
+  const lengua = idioma === 'en' ? 'English' : 'Spanish';
+  const prompt = `
+    You are an expert music curator building a playlist for a listener.
+
+    Listener's request: "${peticion}"
+
+    Return ONLY a JSON object, with this exact shape and no other text:
+    {"nombre": "...", "descripcion": "...", "canciones": [{"titulo": "...", "artista": "..."}]}
+
+    Rules:
+    - "canciones": exactly ${pedir} songs that REALLY exist and are on Spotify. Never invent songs or attribute a song to the wrong artist.
+      If you are not sure a song exists, leave it out and pick another one.
+    - "titulo" is the original song title (no "remastered", no "feat." inside the title); "artista" is the main artist only.
+    - No duplicates. Mix well-known songs with a few less obvious ones, unless the request asks for something specific.
+    - Order the songs so the playlist flows well for the request (for example energy that builds, or a calm arc).
+    - Follow the request closely: mood, moment of the day, activity, genres, decades, languages and artists it mentions.
+    - "nombre": a short, catchy playlist name in ${lengua} (max 40 characters, no quotes or emojis).
+    - "descripcion": one sentence in ${lengua} (max 120 characters).
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: prompt,
+      config: { responseMimeType: 'application/json' },
+    });
+    const bruto = response.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    const data = JSON.parse(bruto);
+    const vistas = new Set();
+    const canciones = (Array.isArray(data.canciones) ? data.canciones : [])
+      .map(c => ({ titulo: String(c?.titulo ?? '').trim().slice(0, 120), artista: String(c?.artista ?? '').trim().slice(0, 120) }))
+      .filter(c => c.titulo && c.artista)
+      .filter(c => { const k = `${c.titulo}|${c.artista}`.toLowerCase(); if (vistas.has(k)) return false; vistas.add(k); return true; });
+    return { nombre: String(data.nombre ?? '').trim(), descripcion: String(data.descripcion ?? '').trim(), canciones };
+  } catch (error) {
+    console.error('❌ Error al generar la lista con Gemini:', error.message);
+    throw error;
+  }
+}
