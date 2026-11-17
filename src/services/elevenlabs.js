@@ -3,7 +3,7 @@ import 'dotenv/config';
 // Voces disponibles: idioma (es/en) + género (m/f). La clave es la que manda el navegador.
 export const VOCES = {
   'es-m': { id: 'wfTWLJ20rcMqvU8gIiAB', idioma: 'es', genero: 'male' },
-  'es-f': { id: '8gK5gnQBZnJWm1ta8R8X', idioma: 'es', genero: 'female' },
+  'es-f': { id: '1CeqBeXMOqCleeQjfYfO', idioma: 'es', genero: 'female' },
   'en-m': { id: 'mKoqwDP2laxTdq1gEgU6', idioma: 'en', genero: 'male' },
   'en-f': { id: 'JaagUurP1dmW3WscoJ79', idioma: 'en', genero: 'female' },
 };
