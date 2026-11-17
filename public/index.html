@@ -243,7 +243,7 @@
           </div>
           <button id="btnCrearLista" class="btn-login" data-i18n="listasCrear"></button>
           <p id="listaEstado" class="lista-estado" aria-live="polite"></p>
-          <a id="btnReconectar" href="/login" class="btn-login btn-reconectar" hidden data-i18n="listasReconectar"></a>
+          <a id="btnReconectar" href="/login?reconectar=1" class="btn-login btn-reconectar" hidden data-i18n="listasReconectar"></a>
           <div id="listaResultado" class="lista-resultado" hidden>
             <h3 id="listaNombre"></h3>
             <a id="listaEnlace" href="#" target="_blank" rel="noopener" data-i18n="listasAbrir"></a>
@@ -573,7 +573,7 @@
         });
         const data = await res.json().catch(() => ({}));
         if (res.status === 401) { estadoLista(t('listasSesion'), true); comprobarSesion(); return; }
-        if (data.codigo === 'FALTA_PERMISO') { estadoLista(t('listasFaltaPermiso'), true); document.getElementById('btnReconectar').hidden = false; return; }
+        if (data.codigo === 'FALTA_PERMISO') { estadoLista(t('listasFaltaPermiso') + (data.detalle ? ' [' + data.detalle + ']' : ''), true); document.getElementById('btnReconectar').hidden = false; return; }
         if (res.status === 429) { estadoLista(t('listasLimite'), true); return; }
         if (!data.success) { estadoLista(t('listasError', { error: data.error || res.status }), true); return; }
 

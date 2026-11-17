@@ -18,7 +18,7 @@ const dormir = (ms) => new Promise(r => setTimeout(r, ms));
 
 /** Error con código para que el servidor decida qué responder al navegador. */
 export class ErrorListas extends Error {
-  constructor(codigo, mensaje, status = 500) { super(mensaje); this.codigo = codigo; this.status = status; }
+  constructor(codigo, mensaje, status = 500, detalle) { super(mensaje); this.codigo = codigo; this.status = status; this.detalle = detalle; }
 }
 
 // ---------------------------------------------------------------------------
@@ -47,7 +47,7 @@ async function spotify(token, metodo, ruta, { cuerpo, reintentos = 1 } = {}) {
 
 const esFaltaDePermiso = (e) => e?.status === 403 && /scope/i.test(e.message || '');
 const traducirError = (e) => esFaltaDePermiso(e)
-  ? new ErrorListas('FALTA_PERMISO', 'Spotify necesita un permiso nuevo para crear listas', 403)
+  ? new ErrorListas('FALTA_PERMISO', 'Spotify necesita un permiso nuevo para crear listas', 403, `Spotify respondió: ${e.message}`)
   : e;
 
 // ---------------------------------------------------------------------------

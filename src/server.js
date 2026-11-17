@@ -43,6 +43,8 @@ function leerCookie(req, nombre) {
 }
 
 const cacheTokens = new Map();   // refreshToken -> { accessToken, expira }
+const alcances = new Map();      // accessToken -> permisos (scope) que Spotify concedió a ese token
+const tieneAlcance = (token, permiso) => !alcances.has(token) || alcances.get(token).split(' ').includes(permiso);
 const renovaciones = new Map();  // refreshToken -> Promise (evita renovar varias veces a la vez)
 
 async function pedirTokensSpotify(params) {
@@ -74,6 +76,7 @@ async function obtenerAccessToken(req, res) {
   try {
     const data = await renovaciones.get(refresh);
     cacheTokens.set(refresh, { accessToken: data.access_token, expira: Date.now() + data.expires_in * 1000 });
+    if (data.scope) alcances.set(data.access_token, data.scope);
     // Spotify a veces entrega un refresh token nuevo: hay que guardarlo
     if (data.refresh_token && data.refresh_token !== refresh) res.cookie(COOKIE_SESION, data.refresh_token, opcionesCookie(UN_ANO));
     return data.access_token;
@@ -117,9 +120,9 @@ function stateValido(state) {
 
 app.get('/login', (req, res) => {
   const state = crearState();
-  res.redirect('https://accounts.spotify.com/authorize?' + new URLSearchParams({
-    response_type: 'code', client_id: process.env.SPOTIFY_CLIENT_ID, scope: SCOPE, redirect_uri: REDIRECT_URI, state,
-  }));
+  const params = { response_type: 'code', client_id: process.env.SPOTIFY_CLIENT_ID, scope: SCOPE, redirect_uri: REDIRECT_URI, state };
+  if (req.query.reconectar) params.show_dialog = 'true'; // fuerza a Spotify a pedir los permisos de nuevo (si no, vuelve sin preguntar)
+  res.redirect('https://accounts.spotify.com/authorize?' + new URLSearchParams(params));
 });
 
 app.get('/callback', async (req, res) => {
@@ -133,6 +136,8 @@ app.get('/callback', async (req, res) => {
   try {
     const data = await pedirTokensSpotify({ grant_type: 'authorization_code', code, redirect_uri: REDIRECT_URI });
     cacheTokens.set(data.refresh_token, { accessToken: data.access_token, expira: Date.now() + data.expires_in * 1000 });
+    if (data.scope) alcances.set(data.access_token, data.scope);
+    console.log('🔑 Login completado. Permisos concedidos:', data.scope);
     res.cookie(COOKIE_SESION, data.refresh_token, opcionesCookie(UN_ANO));
     res.redirect('/'); // ya no hay que copiar ningún token
   } catch (e) {
@@ -149,7 +154,8 @@ app.get('/logout', (req, res) => {
 
 // El front pregunta esto al abrir: ¿hay sesión válida?
 app.get('/api/estado-sesion', async (req, res) => {
-  res.json({ conectado: !!(await obtenerAccessToken(req, res)) });
+  const token = await obtenerAccessToken(req, res);
+  res.json({ conectado: !!token, permisoListas: token ? tieneAlcance(token, 'playlist-modify-private') : false });
 });
 
 // ---------------------------------------------------------------------------
@@ -247,11 +253,14 @@ app.post('/api/listas/crear', requiereSesion, async (req, res) => {
   const modo = req.body?.modo === 'cola' ? 'cola' : 'lista';
   const idioma = req.body?.idioma === 'en' ? 'en' : 'es';
 
+  if (!tieneAlcance(req.spotifyToken, 'playlist-modify-private')) { // esta sesión se abrió antes de pedir el permiso nuevo
+    return res.status(403).json({ success: false, codigo: 'FALTA_PERMISO', error: 'La sesión actual no tiene el permiso de listas', detalle: `permisos de esta sesión: ${alcances.get(req.spotifyToken)}` });
+  }
   try {
     const r = await crearLista({ token: req.spotifyToken, peticion, cantidad, modo, idioma }, { generar: gemini.generarListaCanciones });
     res.json({ success: true, ...r });
   } catch (e) {
-    if (e instanceof ErrorListas) return res.status(e.status).json({ success: false, codigo: e.codigo, error: e.message });
+    if (e instanceof ErrorListas) { console.warn('⚠️ Listas:', e.codigo, e.detalle || ''); return res.status(e.status).json({ success: false, codigo: e.codigo, error: e.message, detalle: e.detalle, permisos: alcances.get(req.spotifyToken) }); }
     console.error('❌ Error en /api/listas/crear:', e.message);
     res.status(500).json({ success: false, error: e.message });
   }
