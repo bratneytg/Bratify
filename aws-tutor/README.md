@@ -9,9 +9,9 @@ Pega un tema o un párrafo de tu curso de AWS que no te quedó claro y recibe un
 - **Historial** de consultas guardado en tu navegador, para repasar.
 - Español o inglés.
 
-## Reutiliza lo que ya tenía Bratify
+## Proyecto independiente
 
-Mismo modelo de Gemini, mismas voces de ElevenLabs y el mismo enfoque de límite de peticiones por IP. Si ya tienes `GEMINI_API_KEY` y `ELEVENLABS_API_KEY` en el `.env` de la raíz del repo, esta app también las lee. No añade dependencias: solo Node.js.
+No depende de ningún otro proyecto: tiene su propio `package.json`, su propio `.env` y no usa dependencias externas (solo Node.js). Puedes copiar esta carpeta a cualquier sitio y funciona.
 
 ## Ejecutarla
 
@@ -30,7 +30,7 @@ npm start                # http://localhost:3100
 | `GEMINI_API_KEY` | Sí | Generar las explicaciones |
 | `ELEVENLABS_API_KEY` | No | Voz natural. Sin ella solo salen las voces del navegador |
 | `ACCESS_CODE` | No, pero recomendable si la publicas | Código que la web pide antes de gastar tus créditos (solo caracteres ASCII) |
-| `GEMINI_MODEL` | No | Por defecto `gemini-3.8-flash`, el mismo que Bratify |
+| `GEMINI_MODEL` | No | Por defecto `gemini-3.8-flash` |
 | `PORT` | No | Por defecto `3100` |
 | `TRUST_PROXY` | No | Ponla a `1` en Render u otro proxy para limitar por IP real |
 

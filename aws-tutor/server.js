@@ -9,11 +9,8 @@ import { generarAudio, hayElevenLabs, VOCES, MAX_CHARS_VOZ } from './src/elevenl
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, 'public');
 
-// Carga .env de esta carpeta y, si no está, el de la raíz del repo (donde Bratify ya guarda sus claves).
-// loadEnvFile no pisa variables que ya existan, así que las del sistema (Render) mandan.
-for (const f of [path.join(__dirname, '.env'), path.join(__dirname, '..', '.env')]) {
-  try { process.loadEnvFile(f); } catch { /* no existe: nada que cargar */ }
-}
+// Carga el .env de esta carpeta (no pisa variables que ya existan, así que las del sistema, p. ej. Render, mandan)
+try { process.loadEnvFile(path.join(__dirname, '.env')); } catch { /* no existe: nada que cargar */ }
 
 const MAX_TEXTO = 4000;
 const MAX_PREVIA = 6000;
@@ -42,7 +39,7 @@ async function leerJson(req, max = 64 * 1024) {
   catch { throw Object.assign(new Error('JSON no válido'), { status: 400 }); }
 }
 
-// Límite por IP: Gemini y ElevenLabs cuestan dinero (mismo criterio que Bratify)
+// Límite por IP: Gemini y ElevenLabs cuestan dinero
 const ventanas = new Map();
 function superaLimite(clave, max, ms) {
   const ahora = Date.now();

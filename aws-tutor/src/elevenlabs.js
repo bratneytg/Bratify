@@ -1,4 +1,4 @@
-// Voz natural opcional con ElevenLabs (mismas voces que Bratify). Sin API key la app usa las voces del navegador.
+// Voz natural opcional con ElevenLabs. Sin API key la app usa las voces del navegador.
 export const VOCES = {
   'es-m': { id: 'wfTWLJ20rcMqvU8gIiAB', nombre: 'Español · hombre' },
   'es-f': { id: 'yFykvY9iSJewrANOC0cU', nombre: 'Español · mujer' },

@@ -1,4 +1,4 @@
-// Cliente mínimo de Gemini por REST (sin dependencias). Mismo modelo que usa Bratify.
+// Cliente mínimo de Gemini por REST (sin dependencias).
 const BASE = () => process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com';
 const MODELO = () => process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 
