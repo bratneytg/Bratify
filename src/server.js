@@ -1,6 +1,8 @@
 import express from 'express';
 import 'dotenv/config';
 import crypto from 'crypto';
+import fs from 'fs';
+import zlib from 'zlib';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import * as gemini from './services/gemini.js'; // namespace: si falta elegirTipoSegmento no se cae el arranque
@@ -8,6 +10,7 @@ import { generarAudioLocucion, elegirVoz } from './services/elevenlabs.js';
 import { obtenerCancionActualConHistorial } from './services/spotify.js';
 import { crearLista, ErrorListas } from './services/listas.js';
 import { obtenerClima } from './services/clima.js';
+import { fetchConTiempo, esTimeout } from './utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -26,11 +29,69 @@ const ACCIONES_PERMITIDAS = ['play', 'pause', 'next', 'previous', 'shuffle', 'vo
 const UN_ANO = 365 * 24 * 3600 * 1000;
 
 app.set('trust proxy', 1); // Render va detrás de un proxy HTTPS
-app.use(express.json());
+app.disable('x-powered-by');
+
+// Cabeceras de seguridad. La política CSP va en modo "solo avisar" (Report-Only): no bloquea nada, pero registra en los
+// logs lo que bloquearía. Cuando los logs lleven unos días limpios se puede pasar a Content-Security-Policy (que ya bloquea).
+const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+  "img-src 'self' data: blob: https://*.scdn.co https://*.spotifycdn.com; media-src 'self' data: blob:; connect-src 'self'; " +
+  "worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /api/csp-report";
+app.use((req, res, next) => {
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Permissions-Policy': 'geolocation=(self), camera=(), microphone=(), payment=()',
+    'Content-Security-Policy-Report-Only': CSP,
+    ...(EN_RENDER ? { 'Strict-Transport-Security': 'max-age=15552000' } : {}),
+  });
+  next();
+});
+let informesCsp = 0; // se registran como mucho 30 por hora para no llenar los logs
+setInterval(() => { informesCsp = 0; }, 3600_000).unref();
+app.post('/api/csp-report', express.json({ type: ['application/csp-report', 'application/reports+json', 'application/json'], limit: '10kb' }), (req, res) => {
+  if (informesCsp++ < 30) {
+    const r = req.body?.['csp-report'] ?? req.body ?? {};
+    console.warn('🛡️ CSP (solo aviso):', r['violated-directive'], '→', r['blocked-uri']);
+  }
+  res.sendStatus(204);
+});
+
+app.use(express.json({ limit: '20kb' })); // las peticiones de la app son pequeñas
 app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
-// El HTML se revalida siempre: sin esto el navegador/WebView puede seguir mostrando la versión anterior horas después de desplegar
+
+// La página principal se sirve comprimida (brotli/gzip: ~4x menos datos) y siempre revalidada, así se ve enseguida
+// la versión nueva tras desplegar. Se recomprime solo si el archivo cambia.
+const RUTA_INDEX = path.join(__dirname, '../public/index.html');
+let indexCache = { mtime: 0 };
+function cargarIndex() {
+  const mtime = fs.statSync(RUTA_INDEX).mtimeMs;
+  if (mtime !== indexCache.mtime) {
+    const raw = fs.readFileSync(RUTA_INDEX);
+    const etag = crypto.createHash('sha1').update(raw).digest('hex').slice(0, 20);
+    indexCache = { mtime, raw, gzip: zlib.gzipSync(raw, { level: 9 }), br: zlib.brotliCompressSync(raw), etag };
+  }
+  return indexCache;
+}
+app.get(['/', '/index.html'], (req, res, next) => {
+  try {
+    const c = cargarIndex();
+    const aceptado = req.headers['accept-encoding'] || '';
+    const [codificacion, cuerpo] = /\bbr\b/.test(aceptado) ? ['br', c.br] : /\bgzip\b/.test(aceptado) ? ['gzip', c.gzip] : ['identity', c.raw];
+    const etag = `"${c.etag}-${codificacion}"`;
+    res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache', 'Vary': 'Accept-Encoding', 'ETag': etag });
+    if (codificacion !== 'identity') res.set('Content-Encoding', codificacion);
+    if (req.headers['if-none-match'] === etag) return res.status(304).end();
+    res.end(cuerpo);
+  } catch (e) {
+    next(); // si algo falla, que lo sirva express.static como siempre
+  }
+});
 app.use(express.static(path.join(__dirname, '../public'), {
-  setHeaders: (res, ruta) => { if (ruta.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache'); },
+  setHeaders: (res, ruta) => {
+    if (ruta.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+    else if (ruta.endsWith('.png')) res.setHeader('Cache-Control', 'public, max-age=604800'); // iconos y logo: 1 semana
+  },
 }));
 app.get('/healthz', (req, res) => res.send('ok')); // health check de Render
 
@@ -51,14 +112,14 @@ const tieneAlcance = (token, permiso) => !alcances.has(token) || alcances.get(to
 const renovaciones = new Map();  // refreshToken -> Promise (evita renovar varias veces a la vez)
 
 async function pedirTokensSpotify(params) {
-  const r = await fetch('https://accounts.spotify.com/api/token', {
+  const r = await fetchConTiempo('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       'Authorization': 'Basic ' + Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString('base64')
     },
     body: new URLSearchParams(params)
-  });
+  }, 10_000);
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error(data.error_description || data.error || `Spotify ${r.status}`), { codigo: data.error });
   return data;
@@ -177,10 +238,11 @@ app.get('/callback', async (req, res) => {
   }
 });
 
-app.get('/logout', (req, res) => {
+// POST (no GET): así ninguna otra página puede cerrarte la sesión con un simple enlace o imagen
+app.post('/logout', (req, res) => {
   cacheTokens.delete(leerCookie(req, COOKIE_SESION));
   res.clearCookie(COOKIE_SESION, opcionesCookie(0));
-  res.redirect('/');
+  res.redirect(303, '/');
 });
 
 // El front pregunta esto al abrir: ¿hay sesión válida?
@@ -194,12 +256,13 @@ app.get('/api/estado-sesion', async (req, res) => {
 // ---------------------------------------------------------------------------
 app.get('/api/estado', requiereSesion, async (req, res) => {
   try {
-    const r = await fetch('https://api.spotify.com/v1/me/player', { headers: { Authorization: `Bearer ${req.spotifyToken}` } });
+    const r = await fetchConTiempo('https://api.spotify.com/v1/me/player', { headers: { Authorization: `Bearer ${req.spotifyToken}` } }, 10_000);
     if (r.status === 204) return res.json({ is_playing: false }); // sin dispositivo activo
     if (r.status === 401) cacheTokens.delete(leerCookie(req, COOKIE_SESION)); // fuerza renovar en la próxima
     res.status(r.status).json(await r.json().catch(() => ({})));
   } catch (error) {
-    res.status(502).json({ error: error.message });
+    console.warn('⚠️ /api/estado:', error.message);
+    res.status(esTimeout(error) ? 504 : 502).json({ error: 'Spotify no respondió' });
   }
 });
 
@@ -217,12 +280,13 @@ app.post('/api/player/:action', requiereSesion, async (req, res) => {
   if (action === 'seek') { method = 'PUT'; url += `?position_ms=${Math.max(0, Math.round(num(req.body?.position_ms, 0)))}`; }
 
   try {
-    const r = await fetch(url, { method, headers: { Authorization: `Bearer ${req.spotifyToken}` } });
+    const r = await fetchConTiempo(url, { method, headers: { Authorization: `Bearer ${req.spotifyToken}` } }, 10_000);
     if (r.ok) return res.json({ success: true, status: r.status });
     // Ej.: 403 sin Premium o dispositivo sin control de volumen; 404 sin dispositivo activo
     res.status(r.status).json({ success: false, details: await r.json().catch(() => ({})) });
   } catch (error) {
-    res.status(502).json({ success: false, error: error.message });
+    console.warn(`⚠️ /api/player/${action}:`, error.message);
+    res.status(esTimeout(error) ? 504 : 502).json({ success: false, error: 'Spotify no respondió' });
   }
 });
 
@@ -244,22 +308,25 @@ app.post('/api/crear-bloque', requiereSesion, async (req, res) => {
 
   try {
     const ambiente = String(req.body.ambiente ?? '').trim().slice(0, 300);
-    const { cancionAnterior, cancionSiguiente } = await obtenerCancionActualConHistorial(
-      req.spotifyToken, req.body.ultimaCancionConocida || 'una gran canción'
-    );
+    const ultima = String(req.body.ultimaCancionConocida || 'una gran canción').slice(0, 200);
+    // Spotify y clima no dependen uno del otro: se piden a la vez (obtenerClima nunca lanza error, devuelve null)
+    const [{ cancionAnterior, cancionSiguiente }, clima] = await Promise.all([
+      obtenerCancionActualConHistorial(req.spotifyToken, ultima),
+      obtenerClima(req.body.ubicacion), // {lat, lon} del dispositivo, si la compartió
+    ]);
 
-    // Variedad: canción, clima, dato curioso, momento del día o mezcla
-    const clima = await obtenerClima(req.body.ubicacion); // {lat, lon} del dispositivo, si la compartió
-    const tipo = gemini.elegirTipoSegmento?.(!!clima) ?? 'cancion';
+    // Variedad: canción, clima, dato curioso, momento del día o mezcla. Cada oyente tiene su propia memoria.
+    const sesion = crypto.createHash('sha256').update(leerCookie(req, COOKIE_SESION) || '').digest('hex').slice(0, 16);
+    const tipo = gemini.elegirTipoSegmento?.(!!clima, sesion) ?? 'cancion';
     const voz = elegirVoz(req.body.voz); // idioma + género + id de la voz de ElevenLabs
-    const guion = await gemini.generarGuionLocutor(cancionAnterior, cancionSiguiente, { tipo, clima, ambiente, idioma: voz.idioma, genero: voz.genero });
+    const guion = await gemini.generarGuionLocutor(cancionAnterior, cancionSiguiente, { tipo, clima, ambiente, idioma: voz.idioma, genero: voz.genero, sesion });
     console.log(`🎙️ Locución [${tipo}]${ambiente ? ` + ambiente "${ambiente}"` : ''}: ${guion}`);
 
     const audio = await generarAudioLocucion(guion, voz.id);
     res.json({ success: true, cancionDetectada: cancionAnterior, guion, tipo, audioBase64: Buffer.from(audio).toString('base64') });
   } catch (error) {
-    console.error('❌ Error en /api/crear-bloque:', error.message);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('❌ Error en /api/crear-bloque:', error.message); // el detalle técnico queda en los logs, no se envía al navegador
+    res.status(esTimeout(error) ? 504 : 500).json({ success: false, error: esTimeout(error) ? 'Un servicio tardó demasiado, reintenta' : 'No se pudo generar la locución' });
   }
 });
 
@@ -293,10 +360,36 @@ app.post('/api/listas/crear', requiereSesion, async (req, res) => {
   } catch (e) {
     if (e instanceof ErrorListas) { console.warn('⚠️ Listas:', e.codigo, e.detalle || ''); return res.status(e.status).json({ success: false, codigo: e.codigo, error: e.message, detalle: e.detalle, permisos: alcances.get(req.spotifyToken) }); }
     console.error('❌ Error en /api/listas/crear:', e.message);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(esTimeout(e) ? 504 : 500).json({ success: false, error: esTimeout(e) ? 'Un servicio tardó demasiado, reintenta' : 'No se pudo crear la lista' });
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+// ---------------------------------------------------------------------------
+// MANTENIMIENTO: todo el estado vive en memoria, así que cada 10 min se descarta lo caducado (si no, crecería sin fin)
+// ---------------------------------------------------------------------------
+setInterval(() => {
+  const ahora = Date.now();
+  for (const [k, v] of peticionesPorSesion) if (!v.some(t => ahora - t < 60_000)) peticionesPorSesion.delete(k);
+  for (const [k, v] of listasPorSesion) if (!v.some(t => ahora - t < 10 * 60_000)) listasPorSesion.delete(k);
+  for (const [k, v] of cacheTokens) if (v.expira < ahora) cacheTokens.delete(k);
+  const vivos = new Set([...cacheTokens.values()].map(v => v.accessToken));
+  for (const token of alcances.keys()) if (!vivos.has(token)) alcances.delete(token);
+  for (const [k, v] of parejas) if (v.expira < ahora) parejas.delete(k);
+}, 10 * 60_000).unref();
+
+// ---------------------------------------------------------------------------
+// ARRANQUE Y CIERRE ORDENADO: al desplegar, Render manda SIGTERM; se termina lo que está en curso (máx. 10 s) en vez de cortarlo
+// ---------------------------------------------------------------------------
+const servidor = app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor Bratify en el puerto ${PORT} (redirect: ${REDIRECT_URI})`);
 });
+
+function cerrar(senal) {
+  console.log(`🛑 ${senal}: cerrando el servidor`);
+  servidor.close(() => process.exit(0));
+  servidor.closeIdleConnections?.();
+  setTimeout(() => process.exit(0), 10_000).unref();
+}
+process.on('SIGTERM', () => cerrar('SIGTERM'));
+process.on('SIGINT', () => cerrar('SIGINT'));
+process.on('unhandledRejection', (e) => console.error('❌ Promesa sin capturar:', e?.message || e));

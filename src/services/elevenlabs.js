@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { fetchConTiempo } from '../utils.js';
 
 // Voces disponibles: idioma (es/en) + género (m/f). La clave es la que manda el navegador.
 export const VOCES = {
@@ -21,7 +22,7 @@ export const elegirVoz = (clave) => VOCES[Object.hasOwn(VOCES, clave) ? clave : 
 export async function generarAudioLocucion(textoGuion, voiceId = VOCES[VOZ_POR_DEFECTO].id) {
   const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`;
 
-  const audioResponse = await fetch(url, {
+  const audioResponse = await fetchConTiempo(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -31,7 +32,7 @@ export async function generarAudioLocucion(textoGuion, voiceId = VOCES[VOZ_POR_D
       text: textoGuion,
       model_id: 'eleven_flash_v2_5',
     }),
-  });
+  }, 25_000);
 
   if (!audioResponse.ok) {
     const errorText = await audioResponse.text();

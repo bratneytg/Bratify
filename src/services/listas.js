@@ -13,6 +13,8 @@
  * Si un endpoint nuevo no existe todavía para esta app (404/405), se prueba el antiguo.
  */
 
+import { fetchConTiempo } from '../utils.js';
+
 const API = 'https://api.spotify.com/v1';
 const dormir = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -25,11 +27,11 @@ export class ErrorListas extends Error {
 // Llamadas a Spotify
 // ---------------------------------------------------------------------------
 async function spotify(token, metodo, ruta, { cuerpo, reintentos = 1 } = {}) {
-  const r = await fetch(API + ruta, {
+  const r = await fetchConTiempo(API + ruta, {
     method: metodo,
     headers: { Authorization: `Bearer ${token}`, ...(cuerpo ? { 'Content-Type': 'application/json' } : {}) },
     body: cuerpo ? JSON.stringify(cuerpo) : undefined,
-  });
+  }, 12_000);
   if (r.status === 429 && reintentos > 0) { // límite de Spotify: se espera lo que pida (máx. 5 s) y se reintenta una vez
     await dormir(Math.min(5, Number(r.headers?.get?.('retry-after')) || 1) * 1000);
     return spotify(token, metodo, ruta, { cuerpo, reintentos: reintentos - 1 });

@@ -161,6 +161,9 @@
     .lista-resultado p { font-size: 12px; color: var(--text-secondary); }
     .btn-reconectar { text-align: center; }
 
+    .btn-enlace { background: none; border: 0; padding: 0; font-size: 12px; font-weight: 700; color: var(--text-secondary); cursor: pointer; }
+    .btn-enlace:hover { color: #fff; text-decoration: underline; }
+
     /* ===== Ajustes para iPhone / iPad ===== */
     html { -webkit-text-size-adjust: 100%; overscroll-behavior: none; }
     body { height: 100vh; height: 100dvh; overscroll-behavior: none; -webkit-tap-highlight-color: transparent;
@@ -191,7 +194,7 @@
       <div class="token-box">
         <label>Spotify</label>
         <span id="estadoSesion" style="font-size:12px;color:var(--text-secondary);"></span>
-        <a href="/logout" style="font-size:12px;color:var(--text-secondary);" data-i18n="logout"></a>
+        <form method="post" action="/logout" style="display:inline"><button type="submit" class="btn-enlace" data-i18n="logout"></button></form>
       </div>
       <div class="token-box">
         <label for="inputAmbiente" data-i18n="promptLabel"></label>

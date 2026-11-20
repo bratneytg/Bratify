@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { fetchConTiempo } from '../utils.js';
 
 const CIUDAD = process.env.CIUDAD || 'Munich'; // ciudad por defecto si el dispositivo no comparte su ubicación
 const TTL_MS = 10 * 60 * 1000;                 // el clima apenas cambia: se reutiliza 10 min
@@ -39,9 +40,10 @@ async function ciudadPorCoordenadas({ lat, lon }) {
   const clave = `${lat.toFixed(2)},${lon.toFixed(2)}`;
   if (cacheCiudad.has(clave)) return cacheCiudad.get(clave);
   try {
-    const r = await fetch(
+    const r = await fetchConTiempo(
       `https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&accept-language=en&lat=${lat}&lon=${lon}`,
-      { headers: { 'User-Agent': 'Bratify/1.0 (radio app)' } } // Nominatim exige identificarse
+      { headers: { 'User-Agent': 'Bratify/1.0 (radio app)' } }, // Nominatim exige identificarse
+      6000
     );
     if (r.ok) {
       const a = (await r.json()).address || {};
@@ -65,8 +67,8 @@ export async function obtenerClima(coordenadas = null) {
     let punto = coordsValidas(coordenadas);
     if (!punto) {
       if (!porDefecto) {
-        const geo = await (await fetch(
-          `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(CIUDAD)}&count=1&language=en`
+        const geo = await (await fetchConTiempo(
+          `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(CIUDAD)}&count=1&language=en`, {}, 6000
         )).json();
         const r = geo.results?.[0];
         if (!r) throw new Error(`No se encontró la ciudad "${CIUDAD}"`);
@@ -80,9 +82,9 @@ export async function obtenerClima(coordenadas = null) {
     if (guardado && Date.now() - guardado.ts < TTL_MS) return guardado.datos;
 
     const ciudad = punto.nombre ?? await ciudadPorCoordenadas(punto);
-    const res = await fetch(
+    const res = await fetchConTiempo(
       `https://api.open-meteo.com/v1/forecast?latitude=${punto.lat}&longitude=${punto.lon}` +
-      `&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,is_day&timezone=auto`
+      `&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,is_day&timezone=auto`, {}, 6000
     );
     if (!res.ok) throw new Error(`Open-Meteo respondió ${res.status}`);
     const { current } = await res.json();

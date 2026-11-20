@@ -1,11 +1,11 @@
 {
   "name": "bratify",
   "version": "1.0.0",
-  "description": "AI-powered personalized radio app",
+  "description": "Velvet Dial: radio con DJ de IA y listas de reproducción sobre tu Spotify",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test"
   },
   "keywords": [],
   "author": "",
@@ -18,5 +18,8 @@
     "@google/genai": "^3.3.0",
     "dotenv": "^18.0.10",
     "express": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { fetchConTiempo } from '../utils.js';
 
 /**
  * Obtiene la canción actual, la anterior registrada y la siguiente en la cola.
@@ -7,9 +8,9 @@ import 'dotenv/config';
  */
 export async function obtenerCancionActualConHistorial(accessToken, ultimaCancionConocida = "una gran canción") {
   try {
-    const responseCurrent = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
+    const responseCurrent = await fetchConTiempo('https://api.spotify.com/v1/me/player/currently-playing', {
       headers: { 'Authorization': `Bearer ${accessToken}` }
-    });
+    }, 8000);
 
     if (responseCurrent.status === 204 || responseCurrent.status > 300) {
       return {
@@ -28,9 +29,9 @@ export async function obtenerCancionActualConHistorial(accessToken, ultimaCancio
     // Obtener la siguiente en la cola
     let cancionSiguiente = "la siguiente canción en tu lista";
     try {
-      const responseQueue = await fetch('https://api.spotify.com/v1/me/player/queue', {
+      const responseQueue = await fetchConTiempo('https://api.spotify.com/v1/me/player/queue', {
         headers: { 'Authorization': `Bearer ${accessToken}` }
-      });
+      }, 8000);
 
       if (responseQueue.ok) {
         const queueData = await responseQueue.json();

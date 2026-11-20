@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { GoogleGenAI } from '@google/genai';
+import { conTiempo } from '../utils.js';
 
 // Inicializa el SDK usando la variable de entorno GEMINI_API_KEY
 const ai = new GoogleGenAI();
@@ -25,18 +26,29 @@ const INSTRUCCIONES = {
   mixto:   'Mix a quick remark about the weather with a quick comment about the songs. Name both songs.',
 };
 
-let ultimoTipo = null;        // para no repetir el mismo tipo dos veces seguidas
-const ultimosGuiones = [];    // últimas locuciones, para que Gemini no repita muletillas ni aperturas
+// Memoria POR SESIÓN (cada oyente tiene la suya): último tipo (para no repetirlo dos veces seguidas) y últimas
+// locuciones (para que Gemini no repita muletillas ni aperturas). Se olvida lo que lleva 6 h sin usarse.
+const memorias = new Map();   // sesión -> { ultimoTipo, ultimosGuiones, uso }
+function memoriaDe(sesion = '_') {
+  const ahora = Date.now();
+  if (memorias.size > 100) for (const [k, v] of memorias) if (ahora - v.uso > 6 * 3600_000) memorias.delete(k);
+  let m = memorias.get(sesion);
+  if (!m) memorias.set(sesion, m = { ultimoTipo: null, ultimosGuiones: [], uso: ahora });
+  m.uso = ahora;
+  return m;
+}
 
 /**
  * Elige el tipo de la próxima locución (aleatorio ponderado, sin repetir el anterior).
  * @param {boolean} hayClima - si es false, se descartan los tipos que necesitan clima/hora
+ * @param {string} [sesion] - identifica al oyente (cada uno lleva su propia memoria)
  */
-export function elegirTipoSegmento(hayClima = true) {
-  const candidatos = TIPOS.filter(t => t.tipo !== ultimoTipo && (hayClima || !t.usaClima));
+export function elegirTipoSegmento(hayClima = true, sesion) {
+  const memoria = memoriaDe(sesion);
+  const candidatos = TIPOS.filter(t => t.tipo !== memoria.ultimoTipo && (hayClima || !t.usaClima));
   let r = Math.random() * candidatos.reduce((suma, t) => suma + t.peso, 0);
   const elegido = candidatos.find(t => (r -= t.peso) < 0) ?? candidatos[0];
-  ultimoTipo = elegido.tipo;
+  memoria.ultimoTipo = elegido.tipo;
   return elegido.tipo;
 }
 
@@ -50,9 +62,12 @@ export function elegirTipoSegmento(hayClima = true) {
  * @param {string} [opciones.ambiente] - petición libre del oyente (p. ej. "estoy en una cita romántica"); se suma a lo habitual
  * @param {string} [opciones.idioma='en'] - 'en' | 'es': idioma en el que habla el locutor
  * @param {string} [opciones.genero='female'] - 'male' | 'female': género del locutor (importa en español)
+ * @param {string} [opciones.sesion] - identifica al oyente (cada uno lleva su propia memoria de locuciones)
  * @returns {Promise<string>} El guion redactado para locutar
  */
-export async function generarGuionLocutor(cancionAnterior, cancionSiguiente, { tipo = 'cancion', clima = null, ambiente = '', idioma = 'en', genero = 'female' } = {}) {
+export async function generarGuionLocutor(cancionAnterior, cancionSiguiente, { tipo = 'cancion', clima = null, ambiente = '', idioma = 'en', genero = 'female', sesion } = {}) {
+  const memoria = memoriaDe(sesion);
+  const ultimosGuiones = memoria.ultimosGuiones;
   const lengua = idioma === 'es' ? 'Spanish' : 'English';
   const locutor = genero === 'male' ? 'male' : 'female';
   const necesitaClima = TIPOS.find(t => t.tipo === tipo)?.usaClima;
@@ -92,10 +107,10 @@ export async function generarGuionLocutor(cancionAnterior, cancionSiguiente, { t
   `;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await conTiempo(ai.models.generateContent({
       model: 'gemini-3.8-flash',
       contents: prompt,
-    });
+    }), 25_000, 'Gemini (locución)');
 
     const guion = response.text.trim();
     ultimosGuiones.push(guion);
@@ -139,11 +154,11 @@ export async function generarListaCanciones(peticion, cantidad, { idioma = 'es' 
   `;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await conTiempo(ai.models.generateContent({
       model: 'gemini-3.8-flash',
       contents: prompt,
       config: { responseMimeType: 'application/json' },
-    });
+    }), 40_000, 'Gemini (lista)');
     const bruto = response.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
     const data = JSON.parse(bruto);
     const vistas = new Set();

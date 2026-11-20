@@ -5,3 +5,10 @@ audios/
 *.rar
 *.zip
 *.tar
+# Entorno y archivos generados
+.idea/
+*.mp3
+.gradle/
+local.properties
+android/app/build/
+android/build/
