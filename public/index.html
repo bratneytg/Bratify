@@ -210,6 +210,8 @@
           <option value="en-m">English · Male</option>
           <option value="en-f">English · Female</option>
         </select>
+        <label for="rangoVolVoz" style="margin-top:6px;"><span data-i18n="volVozTitulo"></span>: <span id="volVozValor">100%</span></label>
+        <input type="range" id="rangoVolVoz" min="0" max="150" step="5" value="100" style="width:100%;accent-color:var(--brat-neon);" />
         <span style="font-size: 11px; color: var(--text-secondary);" data-i18n="vozAyuda"></span>
       </div>
       <div class="token-box">
@@ -334,7 +336,7 @@
         listasFaltaPermiso: 'Para crear listas, Spotify necesita un permiso nuevo. Pulsa "Reconectar Spotify" y acepta.',
         listasLimite: 'Demasiadas listas seguidas. Espera unos minutos.', listasSesion: 'Tu sesión de Spotify caducó. Vuelve a conectarte.',
         listasError: 'No se pudo crear la lista: {error}',
-        vozTitulo: 'Voz del DJ', vozAyuda: 'Cambia el idioma y la voz de las locuciones. Se aplica desde la siguiente.',
+        vozTitulo: 'Voz del DJ', volVozTitulo: 'Volumen de la voz', vozAyuda: 'Cambia el idioma y la voz de las locuciones. Se aplica desde la siguiente.',
         avisoIosAbierta: 'En iPhone el DJ solo habla con la app abierta y la pantalla encendida. No bloquees el teléfono mientras escuchas.',
       },
       en: {
@@ -367,7 +369,7 @@
         listasFaltaPermiso: 'To create playlists, Spotify needs a new permission. Tap "Reconnect Spotify" and accept.',
         listasLimite: 'Too many playlists in a row. Wait a few minutes.', listasSesion: 'Your Spotify session expired. Please connect again.',
         listasError: 'Could not create the playlist: {error}',
-        vozTitulo: 'DJ voice', vozAyuda: 'Changes the language and voice of the links. Applies from the next one.',
+        vozTitulo: 'DJ voice', volVozTitulo: 'Voice volume', vozAyuda: 'Changes the language and voice of the links. Applies from the next one.',
         avisoIosAbierta: 'On iPhone the DJ only speaks while the app is open and the screen is on. Do not lock the phone while listening.',
       },
     };
@@ -525,6 +527,18 @@
     const vozGuardada = localStorage.getItem('vd_voz');
     selectVoz.value = VOCES_VALIDAS.includes(vozGuardada) ? vozGuardada : 'en-f'; // por defecto, la voz de siempre
     const vozActual = () => selectVoz.value;
+
+    // Volumen de la voz del DJ (0-150 %; 100 % = el volumen de siempre). Es independiente del volumen de la música.
+    const rangoVolVoz = document.getElementById('rangoVolVoz'), volVozValor = document.getElementById('volVozValor');
+    let volVoz = (() => { const v = Number(localStorage.getItem('vd_vol_voz')); return localStorage.getItem('vd_vol_voz') !== null && Number.isFinite(v) && v >= 0 && v <= 150 ? v : 100; })();
+    rangoVolVoz.value = volVoz; volVozValor.textContent = volVoz + '%';
+    let gananciaVozActiva = null; // el nodo de ganancia de la locución que está sonando ahora (para cambiar el volumen en directo)
+    const gananciaDeVoz = () => GANANCIA_VOZ * volVoz / 100;
+    rangoVolVoz.addEventListener('input', () => {
+      volVoz = Number(rangoVolVoz.value); volVozValor.textContent = volVoz + '%';
+      if (gananciaVozActiva && audioCtx) gananciaVozActiva.gain.setTargetAtTime(gananciaDeVoz(), audioCtx.currentTime, 0.02);
+    });
+    rangoVolVoz.addEventListener('change', () => localStorage.setItem('vd_vol_voz', String(volVoz)));
     selectVoz.addEventListener('change', () => {
       localStorage.setItem('vd_voz', selectVoz.value);
       // Si ya había una locución lista (sin emitir), se descarta para regenerarla con la voz nueva
@@ -944,7 +958,9 @@
         fuente.buffer = bufferDj;
         // La voz pasa por una ganancia y un limitador: se amplifica sin saturar ni "romper" el audio
         const ganancia = audioCtx.createGain();
-        ganancia.gain.value = GANANCIA_VOZ;
+        ganancia.gain.value = gananciaDeVoz();
+        gananciaVozActiva = ganancia;
+        fuente.addEventListener('ended', () => { if (gananciaVozActiva === ganancia) gananciaVozActiva = null; });
         const limitador = audioCtx.createDynamicsCompressor();
         limitador.threshold.value = -6;  // empieza a limitar cerca del tope
         limitador.knee.value = 3;
