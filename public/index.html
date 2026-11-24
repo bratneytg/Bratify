@@ -111,8 +111,7 @@
     .dj-toggle-btn.dj-on { box-shadow: 0 0 18px rgba(138, 206, 0, .45); }
     .dj-toggle-btn.dj-on:hover { color: #000; }
     .dj-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; opacity: .7; }
-    .dj-on .dj-dot { opacity: 1; animation: pulso 1.4s ease-in-out infinite; }
-    @keyframes pulso { 50% { transform: scale(1.6); opacity: .4; } }
+    .dj-on .dj-dot { opacity: 1; } /* punto fijo: una animación infinita mantiene la pantalla redibujando y gasta batería */
     .btn-login { display: inline-block; border-radius: 500px; letter-spacing: .3px; transition: transform .15s, background .2s; }
     .btn-login:hover { transform: scale(1.04); }
     .token-box a { color: var(--text-secondary); text-decoration: none; font-weight: 700; }
@@ -428,23 +427,29 @@
     const SUBIDA_FADE_MS = 2500;   // duración de la subida de volumen al terminar la voz
     const SUBIDA_ANTES_MS = 1800;  // la subida empieza este tiempo antes de que acabe la voz (la música "crece" bajo las últimas palabras)
     const VOZ_RETRASO_MS = 1200;   // la voz entra con este retraso desde que empieza a bajar la música
-    const POLL_MS = 2000;          // cada cuánto se consulta a Spotify (entre consultas se interpola en local)
-    const TICK_MS = 250;           // resolución del reloj local que decide cuándo actuar
+    // Ahorro de batería: cada consulta a Spotify y cada despertar de la CPU cuestan. Entre consultas el progreso se interpola
+    // en local, así que solo se consulta/vigila con más frecuencia cuando hace falta precisión (el final de la canción).
+    const POLL_VISIBLE_MS = 3000;  // consulta a Spotify con la pantalla encendida
+    const POLL_OCULTO_MS = 6000;   // ...y con la app en segundo plano / pantalla apagada
+    const POLL_FINAL_MS = 1000;    // ...y cada 1 s en el tramo final (con el DJ activo), que es donde se decide la transición
+    const TICK_RAPIDO_MS = 250;    // resolución del reloj local en el tramo crítico (transición del DJ)
+    const TICK_LENTO_MS = 1000;    // el resto del tiempo
 
     // ============ TEMPORIZADORES A PRUEBA DE SEGUNDO PLANO ============
     // Con la pantalla apagada, Chrome/WebView frena los setTimeout de la página (a 1 por segundo y, pasados 5 min, a
     // 1 por MINUTO), pero NO los de un Web Worker. Antes la consulta a Spotify y las esperas de la locución usaban
     // setTimeout, así que con la pantalla apagada los datos de Spotify se quedaban viejos y el DJ dejaba de hablar.
-    // Ahora TODOS los temporizadores (y el reloj de 250 ms) pasan por un único worker.
+    // Ahora TODOS los temporizadores (y el reloj local) pasan por un único worker.
     const relojW = (() => {
       try {
         return new Worker(URL.createObjectURL(new Blob([`
           const t = new Map();
+          let iv = null;
           onmessage = (e) => {
             const m = e.data;
             if (m.op === 'set') t.set(m.id, setTimeout(() => { t.delete(m.id); postMessage(m.id); }, m.ms));
             else if (m.op === 'clear') { clearTimeout(t.get(m.id)); t.delete(m.id); }
-            else if (m.op === 'tick') setInterval(() => postMessage(0), m.ms);
+            else if (m.op === 'tick') { clearInterval(iv); iv = setInterval(() => postMessage(0), m.ms); }
           };`], { type: 'text/javascript' })));
       } catch (e) { return null; } // sin worker (CSP, navegador antiguo): se usan los temporizadores normales
     })();
@@ -475,9 +480,12 @@
 
     // ============ DIAGNÓSTICO ============
     // Registro de eventos solo en memoria (sin interfaz): sirve para depurar desde la consola del navegador (window.vdLog).
+    // Apagado por defecto (ahorra CPU y memoria). Para depurar: localStorage.setItem('vd_debug','1') y recargar.
+    const DEBUG = (() => { try { return localStorage.getItem('vd_debug') === '1'; } catch (e) { return false; } })();
     const diag = [];
     window.vdLog = diag;
     function dlog(msg) {
+      if (!DEBUG) return;
       diag.push(new Date().toTimeString().slice(0, 8) + ' ' + msg);
       while (diag.length > 260) diag.shift();
     }
@@ -1014,8 +1022,8 @@
     }
 
     // ============ 3. RELOJ LOCAL ============
-    // Spotify solo informa el progreso cada POLL_MS y con retrasos variables. Entre consultas
-    // se interpola con performance.now(), y las decisiones de tiempo se toman aquí (cada TICK_MS).
+    // Spotify solo informa el progreso cuando se le consulta y con retrasos variables. Entre consultas
+    // se interpola con el reloj, y las decisiones de tiempo se toman en tick().
     // ---- Control de posición: clic o arrastre sobre la barra de progreso ----
     const barraProgreso = document.querySelector('.progress-bar');
     const posDesdeEvento = (e) => {
@@ -1078,12 +1086,29 @@
     }
 
     let ultimoTickTs = 0, ultimoLatidoTs = 0;
+
+    // El reloj va lento (1 s) casi todo el tiempo y rápido (0,25 s) solo cuando la transición del DJ puede ocurrir:
+    // con el DJ activo, sonando, en el tramo final de la canción o con una locución en curso.
+    let tickMsActual = 0, ivTick = null;
+    function fijarTick(ms) {
+      if (ms === tickMsActual) return;
+      tickMsActual = ms;
+      if (relojW) relojW.postMessage({ op: 'tick', ms });
+      else { clearInterval(ivTick); ivTick = setInterval(tick, ms); }
+    }
+    function tickDeseadoMs() {
+      if (transicionEnCurso) return TICK_RAPIDO_MS;
+      if (!djActivo || !isPlaying || !duracionCancionMs) return TICK_LENTO_MS;
+      return duracionCancionMs - progresoActualMs() < Math.max(30000, tiempoNecesarioMs() + 10000) ? TICK_RAPIDO_MS : TICK_LENTO_MS;
+    }
+
     function tick() {
       const ahoraTick = Date.now();
-      if (ultimoTickTs && ahoraTick - ultimoTickTs > 1500) dlog(`⚠ el reloj se paró ${Math.round((ahoraTick - ultimoTickTs) / 1000)}s (página en segundo plano/frenada)`);
+      if (DEBUG && ultimoTickTs && ahoraTick - ultimoTickTs > 1500) dlog(`⚠ el reloj se paró ${Math.round((ahoraTick - ultimoTickTs) / 1000)}s (página en segundo plano/frenada)`);
       ultimoTickTs = ahoraTick;
       gestionarPoll();
-      if (djActivo && ahoraTick - ultimoLatidoTs > 30000) { // latido del DJ cada 30 s: explica por qué actúa o no
+      fijarTick(tickDeseadoMs());
+      if (DEBUG && djActivo && ahoraTick - ultimoLatidoTs > 30000) { // latido del DJ cada 30 s: explica por qué actúa o no
         ultimoLatidoTs = ahoraTick;
         dlog(`♥ resta ${Math.round((duracionCancionMs - progresoActualMs()) / 1000)}s · sonando=${isPlaying} · lista=${locucionPreparada} · precargando=${precargandoEnCurso} · enCurso=${transicionEnCurso} · spotify hace ${Math.round((ahoraTick - ultimoSondeoTs) / 1000)}s · ctx=${audioCtx?.state} · ${document.visibilityState}`);
       }
@@ -1092,11 +1117,11 @@
       const restante = duracionCancionMs - progreso;
 
       // UI (barra de progreso suave)
-      if (!arrastrando) {
+      if (!arrastrando && !document.hidden) { // con la pantalla apagada no se pinta (al volver, el siguiente ciclo lo repinta)
         document.getElementById('timeCurrent').textContent = formatTime(progreso);
         document.getElementById('progressFill').style.width = `${(progreso / duracionCancionMs) * 100}%`;
       }
-      if (btnPlayPause.dataset.estado !== String(isPlaying)) { // solo se redibuja el icono cuando cambia
+      if (!document.hidden && btnPlayPause.dataset.estado !== String(isPlaying)) { // solo se redibuja el icono cuando cambia
         btnPlayPause.dataset.estado = String(isPlaying);
         btnPlayPause.innerHTML = isPlaying ? '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>' : '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
       }
@@ -1204,22 +1229,21 @@
       return `${min}:${sec < 10 ? '0' : ''}${sec}`;
     }
 
-    // Consulta a Spotify: cada POLL_MS, y cada 1 s durante el último minuto y cuarto (más muestras = mejor estimación).
+    // Consulta a Spotify: cada 3 s (6 s en segundo plano) y cada 1 s en el tramo final con el DJ activo (más muestras = mejor estimación).
     // La lanza el reloj (tick) en vez de una cadena de temporizadores: si una consulta se atasca, se reinicia sola.
     let pollEnCurso = false, pollId = 0, pollIniTs = 0, ultimoPollIniTs = 0;
     function gestionarPoll() {
       const ahora = Date.now();
       if (pollEnCurso && ahora - pollIniTs > 12000) { dlog('⚠ consulta a Spotify atascada: se reinicia'); pollId++; pollEnCurso = false; }
-      const cerca = djActivo && duracionCancionMs && (duracionCancionMs - progresoActualMs()) < 75000;
-      if (pollEnCurso || ahora - ultimoPollIniTs < (cerca ? 1000 : POLL_MS)) return;
+      const cerca = djActivo && duracionCancionMs && (duracionCancionMs - progresoActualMs()) < Math.max(40000, tiempoNecesarioMs() + 15000);
+      if (pollEnCurso || ahora - ultimoPollIniTs < (cerca ? POLL_FINAL_MS : document.hidden ? POLL_OCULTO_MS : POLL_VISIBLE_MS)) return;
       const miId = ++pollId;
       pollEnCurso = true; pollIniTs = ultimoPollIniTs = ahora;
       actualizarEstado().finally(() => { if (miId === pollId) pollEnCurso = false; });
     }
 
-    // El reloj local (cada TICK_MS) corre en el worker de arriba, que no se frena en segundo plano
-    if (relojW) relojW.postMessage({ op: 'tick', ms: TICK_MS });
-    else setInterval(tick, TICK_MS);
+    // El reloj local corre en el worker de arriba, que no se frena en segundo plano (su frecuencia la ajusta fijarTick)
+    fijarTick(TICK_LENTO_MS);
 
     // ============ 5. SESIÓN Y MENÚ ============
     // Al abrir: si hay sesión, empieza solo; si no, aparece la pantalla de login.
