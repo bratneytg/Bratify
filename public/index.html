@@ -111,7 +111,8 @@
     .dj-toggle-btn.dj-on { box-shadow: 0 0 18px rgba(138, 206, 0, .45); }
     .dj-toggle-btn.dj-on:hover { color: #000; }
     .dj-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; opacity: .7; }
-    .dj-on .dj-dot { opacity: 1; } /* punto fijo: una animación infinita mantiene la pantalla redibujando y gasta batería */
+    .dj-on .dj-dot { opacity: 1; animation: pulso 1.4s ease-in-out infinite; }
+    @keyframes pulso { 50% { transform: scale(1.6); opacity: .4; } }
     .btn-login { display: inline-block; border-radius: 500px; letter-spacing: .3px; transition: transform .15s, background .2s; }
     .btn-login:hover { transform: scale(1.04); }
     .token-box a { color: var(--text-secondary); text-decoration: none; font-weight: 700; }
